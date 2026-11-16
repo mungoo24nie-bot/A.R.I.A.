@@ -1,3 +1,4 @@
+
 plugins {
     id 'com.android.application'
 }
@@ -16,13 +17,14 @@ android {
 
     signingConfigs {
         release {
-            def keyFile = System.getenv('ARIA_KEYSTORE_PATH')
-            def keyPassword = System.getenv('ARIA_SIGNING_PASSWORD')
-            if (keyFile && keyPassword) {
-                storeFile file(keyFile)
-                storePassword keyPassword
+            def signingKeyPath = System.getenv('ARIA_KEYSTORE_PATH')
+            def signingPassword = System.getenv('ARIA_SIGNING_PASSWORD')
+
+            if (signingKeyPath && signingPassword) {
+                storeFile file(signingKeyPath)
+                storePassword signingPassword
                 keyAlias 'aria'
-                keyPassword keyPassword
+                keyPassword signingPassword
             }
         }
     }
