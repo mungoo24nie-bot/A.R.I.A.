@@ -1,9 +1,11 @@
 plugins {
     id 'com.android.application'
 }
+
 android {
     namespace 'pl.aria.app'
     compileSdk 35
+
     defaultConfig {
         applicationId 'pl.aria.app'
         minSdk 26
@@ -11,6 +13,27 @@ android {
         versionCode 2
         versionName '0.2'
     }
+
+    signingConfigs {
+        release {
+            def keyFile = System.getenv('ARIA_KEYSTORE_PATH')
+            def keyPassword = System.getenv('ARIA_SIGNING_PASSWORD')
+            if (keyFile && keyPassword) {
+                storeFile file(keyFile)
+                storePassword keyPassword
+                keyAlias 'aria'
+                keyPassword keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
