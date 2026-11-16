@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +22,11 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Fetch pinned llama.cpp source
+        run: |
+          mkdir -p third_party
+          git clone --depth 1 --branch b12248 https://github.com/ggml-org/llama.cpp.git third_party/llama.cpp
+
       - name: Restore private signing key
         env:
           ARIA_KEYSTORE_BASE64: ${{ secrets.ARIA_KEYSTORE_BASE64 }}
@@ -31,7 +37,7 @@ jobs:
           printf '%s' "$ARIA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/aria-release.jks"
           echo "ARIA_KEYSTORE_PATH=$RUNNER_TEMP/aria-release.jks" >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
+      - name: Build signed release APK with llama.cpp
         env:
           ARIA_SIGNING_PASSWORD: ${{ secrets.ARIA_SIGNING_PASSWORD }}
         run: gradle assembleRelease --no-daemon
@@ -43,6 +49,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ARIA-0.2-signed-APK
+          name: ARIA-0.4-signed-APK
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
