@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.0");
+        title.setText("A.R.I.A. 1.1");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -204,7 +204,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.0.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.1.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -246,6 +246,7 @@ public class MainActivity extends Activity {
         if (known == null) known = TopicMemory.answer(memory.getReadableDatabase(), message);
         if (known == null) known = EvidenceAnswer.answer(memory.getReadableDatabase(), message);
         if (known == null) known = ConversationMemory.answer(memory.getReadableDatabase(), message);
+        if (known == null) known = GeneralMemory.directAnswer(memory.getReadableDatabase(), message, eventId);
         if (known != null) {
             memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
             showConversation();
@@ -454,6 +455,11 @@ public class MainActivity extends Activity {
                     .append(content).append(" | Źródło: ").append(hit.source).append("\n");
             }
         }
+        String generalEvidence = GeneralMemory.evidence(memory.getReadableDatabase(), question, -1);
+        if (!generalEvidence.isEmpty()) {
+            prompt.append("DODATKOWE ŹRÓDŁOWE WYPOWIEDZI UŻYTKOWNIKA (mogą być niepowiązane):\\n");
+            prompt.append(generalEvidence);
+        }
         prompt.append("Ostatnie wypowiedzi:\n");
         for (String line : recent) prompt.append(line).append('\n');
         prompt.append("Aktualne pytanie:\n").append(question, 0, Math.min(question.length(), 550))
@@ -607,7 +613,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.0");
+            root.put("version", "1.1");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
