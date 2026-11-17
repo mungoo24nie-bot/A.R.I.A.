@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.2");
+        title.setText("A.R.I.A. 1.2.1");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -206,7 +206,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.2.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.2.1.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -591,7 +591,7 @@ public class MainActivity extends Activity {
 
     private void showConversation() {
         messages.removeAllViews();
-        addMessage("ARIA 1.2 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
+        addMessage("ARIA 1.2.1 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
@@ -630,7 +630,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.2");
+            root.put("version", "1.2.1");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
