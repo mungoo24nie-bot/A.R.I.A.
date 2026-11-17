@@ -142,7 +142,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.2.1");
+        title.setText("A.R.I.A. 1.3");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.2.2.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.3.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -268,7 +268,7 @@ public class MainActivity extends Activity {
         if (known == null && memoryQuestion) known = TopicMemory.answer(memory.getReadableDatabase(), message);
         if (known == null && memoryQuestion) known = EvidenceAnswer.answer(memory.getReadableDatabase(), message);
         if (known == null && memoryQuestion) known = ConversationMemory.answer(memory.getReadableDatabase(), message);
-        if (known == null && memoryQuestion) known = GeneralMemory.directAnswer(memory.getReadableDatabase(), message, eventId);
+        // Pamięć ogólna nie zwraca już surowej listy przypadkowych dopasowań.
         if (known != null) {
             memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
             showConversation();
@@ -441,7 +441,7 @@ public class MainActivity extends Activity {
             q.contains("jak mam na imie") || q.contains("jak sie nazywam") ||
             q.contains("co oznacza twoje imie") || q.contains("skrot aria") ||
             q.contains("wczesniej") || q.contains("kronik") ||
-            q.contains("pierwsz") || q.contains("co ci mowilem") ||
+            q.contains("co ci mowilem") ||
             q.contains("z kim mieszkam") || q.contains("kto kupil dom") ||
             q.contains("jak nazywa sie moj pies");
     }
@@ -456,6 +456,12 @@ public class MainActivity extends Activity {
                 String content=c.getString(3);
                 if ("user".equals(type) && c.isLast()) continue;
                 if (content.length()>220) content=content.substring(0,220);
+                String lower=norm(content);
+                if ("aria".equals(type) && (lower.contains("nie wiesz") ||
+                    lower.contains("co wiedzisz") || lower.contains("masz wiedziec") ||
+                    lower.contains("nie rozumiem, co pytanie") ||
+                    lower.contains("odpowiedz na to pytanie") ||
+                    lower.startsWith("znalazlam w twoich wczesniejszych"))) continue;
                 recent.addLast(("user".equals(type)?"Użytkownik: ":"ARIA: ")+content);
                 if(recent.size()>5) recent.removeFirst();
             }
@@ -474,9 +480,10 @@ public class MainActivity extends Activity {
             .append("<|im_start|>user\n");
         if (memoryQuestion) {
             prompt.append("DANE PAMIĘCI — WYPOWIEDZI UŻYTKOWNIKA:\n");
-            String evidence=GeneralMemory.evidence(memory.getReadableDatabase(),question,-1);
+            String evidence=SemanticMemory.evidence(memory.getReadableDatabase(),question,-1);
             if(evidence.length()>1000) evidence=evidence.substring(0,1000);
-            prompt.append(evidence.isEmpty()?"Brak dopasowanych źródeł.\n":evidence);
+            prompt.append(evidence.isEmpty()?"Brak wiarygodnie dopasowanych źródeł. Nie zgaduj.\n":evidence);
+            prompt.append("Odpowiedz tylko na podstawie powyższych źródeł. Połącz informacje, nie wypisuj surowych cytatów.\n");
         }
         String corrections=LearningMemory.recent(memory.getReadableDatabase());
         if (!corrections.isEmpty()) prompt.append("OSTATNIE KOREKTY:\n").append(corrections);
@@ -610,7 +617,7 @@ public class MainActivity extends Activity {
     private void showConversation() {
         if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
         messages.removeAllViews();
-        addMessage("ARIA 1.2.1 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
+        addMessage("ARIA 1.3 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
@@ -651,7 +658,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.2.1");
+            root.put("version", "1.3");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
