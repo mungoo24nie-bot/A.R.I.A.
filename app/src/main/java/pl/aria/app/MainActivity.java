@@ -68,18 +68,36 @@ public class MainActivity extends Activity {
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
     private static class MemoryDb extends SQLiteOpenHelper {
-        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 1); }
+        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 2); }
         @Override public void onCreate(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, type TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL)");
+            createFacts(db);
         }
-        @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) { }
-        void add(String type, String content, String source) {
+        @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+            if (oldVersion < 2) createFacts(db); // Nigdy nie usuwaj events.
+        }
+        private static void createFacts(SQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS facts (fact_key TEXT PRIMARY KEY, fact_value TEXT NOT NULL, source_event_id INTEGER NOT NULL, updated_at TEXT NOT NULL)");
+        }
+        void saveFact(String key, String value, long eventId) {
+            ContentValues v = new ContentValues();
+            v.put("fact_key", key); v.put("fact_value", value);
+            v.put("source_event_id", eventId);
+            v.put("updated_at", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.ROOT).format(new Date()));
+            getWritableDatabase().insertWithOnConflict("facts", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+        }
+        String[] fact(String key) {
+            try (Cursor c = getReadableDatabase().rawQuery("SELECT fact_value,source_event_id FROM facts WHERE fact_key=?", new String[]{key})) {
+                return c.moveToFirst() ? new String[]{c.getString(0), c.getString(1)} : null;
+            }
+        }
+        long add(String type, String content, String source) {
             ContentValues values = new ContentValues();
             values.put("created_at", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.ROOT).format(new Date()));
             values.put("type", type);
             values.put("content", content);
             values.put("source", source);
-            getWritableDatabase().insertOrThrow("events", null, values);
+            return getWritableDatabase().insertOrThrow("events", null, values);
         }
         Cursor all() {
             return getReadableDatabase().query("events", new String[]{"id", "created_at", "type", "content", "source"}, null, null, null, null, "id ASC");
@@ -113,7 +131,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 0.5.1");
+        title.setText("A.R.I.A. 0.6");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -157,6 +175,7 @@ public class MainActivity extends Activity {
         bottom.addView(send);
         root.addView(bottom);
         setContentView(root);
+        rebuildFacts();
         showConversation();
 
         send.setOnClickListener(v -> sendMessage());
@@ -179,7 +198,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.5.1.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.6.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -202,9 +221,21 @@ public class MainActivity extends Activity {
         if (busy) return;
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
-        memory.add("user", message, "użytkownik");
+        long eventId = memory.add("user", message, "użytkownik");
+        String factAck = rememberUserFact(message, eventId);
         input.setText("");
+        if (factAck != null) {
+            memory.add("aria", factAck, "potwierdzenie faktu z wypowiedzi użytkownika — SQLite");
+            showConversation();
+            return;
+        }
         showConversation();
+        String known = answerFromFacts(message);
+        if (known != null) {
+            memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
+            showConversation();
+            return;
+        }
         if (!modelFile().exists()) {
             String answer = respondWithoutModel(message);
             memory.add("aria", answer, "odpowiedź regułowa — model nie został jeszcze wybrany");
@@ -242,6 +273,52 @@ public class MainActivity extends Activity {
     }
 
     // Odpowiedź dosłowna pochodzi z SQLite, nie z domysłu modelu.
+    // Odtwórz fakty z wypowiedzi użytkownika po aktualizacji i imporcie archiwum.
+    private void rebuildFacts() {
+        try (Cursor c = memory.all()) {
+            while (c.moveToNext()) {
+                if ("user".equals(c.getString(2))) {
+                    rememberUserFact(c.getString(3), c.getLong(0));
+                }
+            }
+        }
+    }
+
+    private String rememberUserFact(String text, long eventId) {
+        String clean = text.trim();
+        String normalized = norm(clean);
+        // Nie interpretuj pytań ani cytowanych wypowiedzi jako deklaracji faktów.
+        if (clean.contains("?")) return null;
+        java.util.regex.Matcher name = java.util.regex.Pattern.compile(
+            "(?iu)(?:^|[.!\\s])(?:jestem|mam na imi[eę]|nazywam si[eę])\\s+([\\p{L}]{2,24})(?=\\s|[.!]|$)").matcher(clean);
+        if (name.find()) {
+            String value = name.group(1);
+            memory.saveFact("user_name", value, eventId);
+            return "Zapamiętałam, że masz na imię " + value + ". Źródło: Twoja wiadomość w kronice.";
+        }
+        if (normalized.contains("twoje imie") && (normalized.contains("skrotem") || normalized.contains("oznacza"))
+                && normalized.contains("autonomiczna") && normalized.contains("adaptacyjna")) {
+            memory.saveFact("aria_name", "Autonomiczna Rozwijająca się Inteligencja Adaptacyjna", eventId);
+            return "Zapamiętałam wyjaśnienie mojego imienia A.R.I.A. Źródło: Twoja wiadomość.";
+        }
+        return null;
+    }
+
+    private String answerFromFacts(String question) {
+        String q = norm(question);
+        if ((q.contains("jak mam na imie") || q.contains("jak sie nazywam") || q.contains("pamietasz moje imie")
+                || q.contains("znasz moje imie")) && !q.contains("twoje imie")) {
+            String[] fact = memory.fact("user_name");
+            return fact == null ? "Nie znalazłam jeszcze Twojego imienia w zapisanych faktach." :
+                "Masz na imię " + fact[0] + ". Powiedziałeś mi o tym w wiadomości #" + fact[1] + ".";
+        }
+        if (q.contains("co oznacza") && (q.contains("a.r.i.a") || q.contains("twoje imie") || q.contains("skrot aria"))) {
+            String[] fact = memory.fact("aria_name");
+            return fact == null ? null : "A.R.I.A. oznacza " + fact[0] + ". Wyjaśniłeś mi to w wiadomości #" + fact[1] + ".";
+        }
+        return null;
+    }
+
     private String exactMemoryAnswer(String question) {
         String q = norm(question);
         boolean first = q.contains("pierwsz") && (q.contains("slow") || q.contains("wiadom") || q.contains("powiedzial") || q.contains("napisal") || q.contains("archiw") || q.contains("cytat"));
@@ -293,7 +370,7 @@ public class MainActivity extends Activity {
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
-                if ("system".equals(type)) continue;
+                if ("system".equals(type) || "aria".equals(type)) continue;
                 String content = c.getString(3);
                 String source = c.getString(4);
                 // Nie zwracaj aktualnego pytania jako rzekomego wspomnienia.
@@ -321,7 +398,7 @@ public class MainActivity extends Activity {
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
-                if (!"user".equals(type) && !"aria".equals(type)) continue;
+                if (!"user".equals(type)) continue;
                 String content = c.getString(3);
                 if ("user".equals(type) && content.equals(question) && c.isLast()) continue;
                 String line = ("user".equals(type) ? "Użytkownik: " : "ARIA: ") + content;
@@ -339,6 +416,10 @@ public class MainActivity extends Activity {
               .append("Nie zgaduj cytatów. Jeśli brak wpisu, powiedz, że nie wiesz. ")
               .append("Archiwum wersji 0.1 zostało odtworzone z relacji użytkownika. /no_think\n<|im_end|>\n")
               .append("<|im_start|>user\n");
+        String[] userName = memory.fact("user_name");
+        String[] ariaName = memory.fact("aria_name");
+        if (userName != null) prompt.append("FAKT OD UŻYTKOWNIKA: imię użytkownika = ").append(userName[0]).append(" (wiadomość #").append(userName[1]).append(").\n");
+        if (ariaName != null) prompt.append("FAKT OD UŻYTKOWNIKA: A.R.I.A. = ").append(ariaName[0]).append(" (wiadomość #").append(ariaName[1]).append(").\n");
         ArrayList<MemoryHit> hits = relevantMemories(question);
         if (hits.isEmpty()) {
             prompt.append("Kronika: brak dopasowanych wpisów do tego pytania.\n");
@@ -455,6 +536,7 @@ public class MainActivity extends Activity {
                 }
                 db.setTransactionSuccessful();
             } finally { db.endTransaction(); }
+            rebuildFacts();
             Toast.makeText(this, "Zaimportowano " + imported + " nowych wpisów", Toast.LENGTH_LONG).show();
             showChronicle();
         } catch (Exception e) {
@@ -503,7 +585,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "0.5.1");
+            root.put("version", "0.6");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
