@@ -16,6 +16,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.FrameLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -61,6 +63,7 @@ public class MainActivity extends Activity {
     private MemoryDb memory;
     private LinearLayout messages;
     private ScrollView scroll;
+    private NeuralBackground neuralBackground;
     private EditText input;
     private TextView status;
     private Button send;
@@ -149,28 +152,65 @@ public class MainActivity extends Activity {
         subtitle.setTextColor(Color.LTGRAY);
         subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle);
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button history = makeButton("KRONIKA");
-        Button export = makeButton("EKSPORT JSON");
-        Button importButton = makeButton("IMPORT JSON");
-        actions.addView(history, new LinearLayout.LayoutParams(0, -2, 1));
-        actions.addView(export, new LinearLayout.LayoutParams(0, -2, 1));
-        actions.addView(importButton, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(actions);
-        Button modelButton = makeButton("WYBIERZ LOKALNY MODEL GGUF");
-        root.addView(modelButton, new LinearLayout.LayoutParams(-1, -2));
+        // Wszystkie narzędzia są dostępne z jednego przycisku MENU.
+        Button menuButton = makeButton("☰  MENU");
+        root.addView(menuButton, new LinearLayout.LayoutParams(-1, -2));
+        menuButton.setOnClickListener(v -> {
+            PopupMenu popup = new PopupMenu(this, menuButton);
+            popup.getMenu().add(0, 1, 0, "Kronika");
+            popup.getMenu().add(0, 2, 1, "Eksport pamięci JSON");
+            popup.getMenu().add(0, 3, 2, "Import pamięci JSON");
+            popup.getMenu().add(0, 4, 3, "Wybierz lokalny model GGUF");
+            popup.setOnMenuItemClickListener(item -> {
+                if (busy) return true;
+                switch (item.getItemId()) {
+                    case 1: showChronicle(); return true;
+                    case 2: {
+                        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("application/json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.2.2.json");
+                        startActivityForResult(intent, EXPORT_REQUEST);
+                        return true;
+                    }
+                    case 3: {
+                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("application/json");
+                        startActivityForResult(intent, IMPORT_REQUEST);
+                        return true;
+                    }
+                    case 4: {
+                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("*/*");
+                        startActivityForResult(intent, MODEL_REQUEST);
+                        return true;
+                    }
+                    default: return false;
+                }
+            });
+            popup.show();
+        });
         status = new TextView(this);
         status.setTextColor(Color.LTGRAY);
         status.setTextSize(12);
         status.setPadding(8, 0, 8, 8);
         root.addView(status);
         status.setText(modelFile().exists() ? "Plik modelu jest na telefonie. Gotowy do wczytania." : "Brak modelu. Pobierz Qwen3-0.6B-Q4_K_M.gguf i wybierz plik.");
+        FrameLayout conversationPanel = new FrameLayout(this);
+        neuralBackground = new NeuralBackground(this);
+        neuralBackground.setGrowth(memory.count());
+        conversationPanel.addView(neuralBackground, new FrameLayout.LayoutParams(-1, -1));
         scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
         messages = new LinearLayout(this);
         messages.setOrientation(LinearLayout.VERTICAL);
+        messages.setBackgroundColor(Color.TRANSPARENT);
         scroll.addView(messages);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        conversationPanel.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(conversationPanel, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         input = new EditText(this);
@@ -187,28 +227,6 @@ public class MainActivity extends Activity {
         showConversation();
 
         send.setOnClickListener(v -> sendMessage());
-        history.setOnClickListener(v -> showChronicle());
-        modelButton.setOnClickListener(v -> {
-            if (busy) return;
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            startActivityForResult(intent, MODEL_REQUEST);
-        });
-        importButton.setOnClickListener(v -> {
-            if (busy) return;
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("application/json");
-            startActivityForResult(intent, IMPORT_REQUEST);
-        });
-        export.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.2.1.json");
-            startActivityForResult(intent, EXPORT_REQUEST);
-        });
     }
 
     private Button makeButton(String title) {
@@ -590,6 +608,7 @@ public class MainActivity extends Activity {
     }
 
     private void showConversation() {
+        if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
         messages.removeAllViews();
         addMessage("ARIA 1.2.1 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
         try (Cursor c = memory.all()) {
@@ -602,6 +621,7 @@ public class MainActivity extends Activity {
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
     }
     private void showChronicle() {
+        if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
         messages.removeAllViews();
         addMessage("KRONIKA EKSPERYMENTU — kolejność zapisu");
         try (Cursor c = memory.all()) {
@@ -617,6 +637,7 @@ public class MainActivity extends Activity {
         view.setTextColor(Color.WHITE);
         view.setTextSize(16);
         view.setPadding(12, 14, 12, 14);
+        view.setBackgroundColor(Color.argb(188, 15, 18, 28));
         messages.addView(view);
     }
 
