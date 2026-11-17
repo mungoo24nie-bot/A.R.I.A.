@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private Button send;
     private boolean busy = false;
+    private boolean diagnosticMode = false;
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
     private static class MemoryDb extends SQLiteOpenHelper {
@@ -142,7 +143,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.3");
+        title.setText("A.R.I.A. 1.4");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -161,6 +162,8 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 2, 1, "Eksport pamięci JSON");
             popup.getMenu().add(0, 3, 2, "Import pamięci JSON");
             popup.getMenu().add(0, 4, 3, "Wybierz lokalny model GGUF");
+            popup.getMenu().add(0, 5, 4, "Tryb diagnostyczny: " + (diagnosticMode ? "WŁ." : "WYŁ."));
+            popup.getMenu().add(0, 6, 5, "Statystyki pamięci");
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
@@ -169,7 +172,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.3.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.4.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -185,6 +188,22 @@ public class MainActivity extends Activity {
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("*/*");
                         startActivityForResult(intent, MODEL_REQUEST);
+                        return true;
+                    }
+                    case 5: {
+                        diagnosticMode = !diagnosticMode;
+                        Toast.makeText(this, diagnosticMode ?
+                            "Diagnostyka WŁ.: model bez pamięci i historii" :
+                            "Diagnostyka WYŁ.: normalna rozmowa", Toast.LENGTH_LONG).show();
+                        status.setText(diagnosticMode ? "DIAGNOSTYKA • model bez pamięci" :
+                            "Tryb normalny • pamięć aktywna");
+                        return true;
+                    }
+                    case 6: {
+                        new android.app.AlertDialog.Builder(this)
+                            .setTitle("Rozwój ARII — dane rzeczywiste")
+                            .setMessage(AriaDiagnostics.report(memory.getReadableDatabase()))
+                            .setPositiveButton("OK", null).show();
                         return true;
                     }
                     default: return false;
@@ -256,13 +275,13 @@ public class MainActivity extends Activity {
         if (factAck == null && (relationalSaved || topicSaved || contextSaved))
             factAck = "Zapisałam tę informację w kronice i powiązałam ją z tematem rozmowy.";
         input.setText("");
-        if (factAck != null && !correctionSaved) {
+        if (factAck != null && !correctionSaved && !diagnosticMode) {
             memory.add("aria", factAck, "potwierdzenie faktu z wypowiedzi użytkownika — SQLite");
             showConversation();
             return;
         }
         showConversation();
-        boolean memoryQuestion = isMemoryQuestion(message);
+        boolean memoryQuestion = !diagnosticMode && isMemoryQuestion(message);
         String known = memoryQuestion ? answerFromFacts(message) : null;
         if (known == null && memoryQuestion) known = RelationalMemory.answer(memory.getReadableDatabase(), message);
         if (known == null && memoryQuestion) known = TopicMemory.answer(memory.getReadableDatabase(), message);
@@ -286,17 +305,32 @@ public class MainActivity extends Activity {
             showConversation();
             return;
         }
-        String prompt = buildPrompt(message);
+        String prompt = DialogueEngine.make(memory.getReadableDatabase(), message,
+            memoryQuestion, diagnosticMode, false, eventId);
         setBusy(true, "ARIA przygotowuje odpowiedź lokalnie. Pierwsze wczytanie może potrwać...");
         worker.execute(() -> {
             try {
                 if (!nativeLoadModel(modelFile().getAbsolutePath())) throw new IllegalStateException("Nie udało się wczytać GGUF. Sprawdź format i wolną pamięć RAM.");
                 byte[] bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS);
                 if (bytes == null) throw new IllegalStateException("Silnik zwrócił błąd.");
-                String answer = cleanGenerated(new String(bytes, StandardCharsets.UTF_8), message);
-                if (answer.isEmpty()) throw new IllegalStateException("Model nie wygenerował tekstu.");
+                String answer = DialogueEngine.clean(new String(bytes, StandardCharsets.UTF_8));
+                if (DialogueEngine.invalid(answer, message)) {
+                    String retryPrompt = DialogueEngine.make(memory.getReadableDatabase(),
+                        message, memoryQuestion, diagnosticMode, true, eventId);
+                    byte[] retryBytes = nativeGenerate(retryPrompt, MAX_OUTPUT_TOKENS);
+                    if (retryBytes != null) {
+                        String retried = DialogueEngine.clean(
+                            new String(retryBytes, StandardCharsets.UTF_8));
+                        if (!DialogueEngine.invalid(retried, message)) answer = retried;
+                    }
+                }
+                if (DialogueEngine.invalid(answer, message))
+                    answer = "Nie udało mi się sformułować poprawnej odpowiedzi. Spróbujmy inaczej.";
+                final String finalAnswer = answer;
                 ui.post(() -> {
-                    memory.add("aria", answer, "lokalny model GGUF / llama.cpp — generacja, możliwe pomyłki");
+                    memory.add("aria", finalAnswer, diagnosticMode ?
+                        "test diagnostyczny modelu — bez pamięci" :
+                        "lokalny model GGUF / llama.cpp — generacja, możliwe pomyłki");
                     setBusy(false, "Model załadowany • odpowiedzi generowane na telefonie");
                     showConversation();
                 });
@@ -617,7 +651,7 @@ public class MainActivity extends Activity {
     private void showConversation() {
         if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
         messages.removeAllViews();
-        addMessage("ARIA 1.3 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
+        addMessage("ARIA 1.4 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
@@ -644,7 +678,7 @@ public class MainActivity extends Activity {
         view.setTextColor(Color.WHITE);
         view.setTextSize(16);
         view.setPadding(12, 14, 12, 14);
-        view.setBackgroundColor(Color.argb(188, 15, 18, 28));
+        view.setBackgroundColor(Color.argb(125, 15, 18, 28));
         messages.addView(view);
     }
 
@@ -658,7 +692,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.3");
+            root.put("version", "1.4");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
