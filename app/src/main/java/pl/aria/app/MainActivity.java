@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private static final int EXPORT_REQUEST = 101;
     private static final int IMPORT_REQUEST = 102;
     private static final int MODEL_REQUEST = 103;
+    private static final int DOCUMENT_REQUEST = 104;
     private static final String MODEL_FILENAME = "aria-qwen.gguf";
     private static final int MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
     private static final int MAX_OUTPUT_TOKENS = 240;
@@ -73,7 +74,7 @@ public class MainActivity extends Activity {
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
     private static class MemoryDb extends SQLiteOpenHelper {
-        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 7); }
+        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 8); }
         @Override public void onCreate(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, type TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL)");
             createFacts(db);
@@ -82,6 +83,7 @@ public class MainActivity extends Activity {
             ConversationMemory.create(db);
             LearningMemory.create(db);
             PersonalityMemory.create(db);
+            KnowledgeLibrary.create(db);
         }
         @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             if (oldVersion < 2) createFacts(db);
@@ -89,7 +91,8 @@ public class MainActivity extends Activity {
             if (oldVersion < 4) TopicMemory.create(db);
             if (oldVersion < 5) ConversationMemory.create(db);
             if (oldVersion < 6) LearningMemory.create(db);
-            if (oldVersion < 7) PersonalityMemory.create(db); // Nigdy nie usuwaj events.
+            if (oldVersion < 7) PersonalityMemory.create(db);
+            if (oldVersion < 8) KnowledgeLibrary.create(db); // Nie usuwaj events.
         }
         private static void createFacts(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE IF NOT EXISTS facts (fact_key TEXT PRIMARY KEY, fact_value TEXT NOT NULL, source_event_id INTEGER NOT NULL, updated_at TEXT NOT NULL)");
@@ -146,7 +149,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.6");
+        title.setText("A.R.I.A. 1.7");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(128, 232, 255));
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -175,6 +178,8 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 6, 5, "Statystyki pamięci");
             popup.getMenu().add(0, 7, 6, "Model i pamięć • informacje techniczne");
             popup.getMenu().add(0, 8, 7, "Osobowość i zapamiętane preferencje");
+            popup.getMenu().add(0, 9, 8, "Biblioteka wiedzy ARII");
+            popup.getMenu().add(0, 10, 9, "Dodaj książkę lub artykuł");
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
@@ -183,7 +188,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.6.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.7.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -234,6 +239,14 @@ public class MainActivity extends Activity {
                             .setPositiveButton("OK",null).show();
                         return true;
                     }
+                    case 9: showLibrary(); return true;
+                    case 10: {
+                        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("*/*");
+                        startActivityForResult(intent,DOCUMENT_REQUEST);
+                        return true;
+                    }
                     default: return false;
                 }
             });
@@ -248,7 +261,7 @@ public class MainActivity extends Activity {
         status.setText(modelFile().exists() ? "Plik modelu jest na telefonie. Gotowy do wczytania." : "Brak modelu. Pobierz Qwen3-0.6B-Q4_K_M.gguf i wybierz plik.");
         FrameLayout conversationPanel = new FrameLayout(this);
         neuralBackground = new NeuralBackground(this);
-        neuralBackground.setGrowth(memory.count());
+        neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
         conversationPanel.addView(neuralBackground, new FrameLayout.LayoutParams(-1, -1));
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -393,11 +406,13 @@ public class MainActivity extends Activity {
             normalized.contains("podalem ci") || normalized.contains("jak sie nazywam"))
             return null;
         java.util.regex.Matcher name = java.util.regex.Pattern.compile(
-            "(?iu)(?:^|[.!\\s])(?:mam na imi[eę]|nazywam si[eę])\\s+([\\p{L}]{2,24})(?=\\s|[.!]|$)").matcher(clean);
+            "(?iu)(?:^|[.!\\s])(?:mam na imi[eę]|nazywam si[eę]|jestem|moje imi[eę] to|moje imi[eę] jest)\\s+([\\p{L}]{2,24})(?=\\s|[.!]|$)").matcher(clean);
         if (name.find()) {
             String value = name.group(1);
             if (value.equalsIgnoreCase("albo") || value.equalsIgnoreCase("jak") ||
-                value.equalsIgnoreCase("gdzie") || value.equalsIgnoreCase("przykład"))
+                value.equalsIgnoreCase("gdzie") || value.equalsIgnoreCase("przykład") ||
+                value.equalsIgnoreCase("zadowolony") || value.equalsIgnoreCase("szczęśliwy") ||
+                value.equalsIgnoreCase("gotowy") || value.equalsIgnoreCase("tutaj"))
                 return null;
             memory.saveFact("user_name", value, eventId);
             return "Zapamiętałam, że masz na imię " + value + ". Źródło: Twoja wiadomość w kronice.";
@@ -696,7 +711,7 @@ public class MainActivity extends Activity {
     }
 
     private void showConversation() {
-        if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
+        if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
         messages.removeAllViews();
         addMessage("");
         try (Cursor c = memory.all()) {
@@ -709,7 +724,7 @@ public class MainActivity extends Activity {
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
     }
     private void showChronicle() {
-        if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
+        if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
         messages.removeAllViews();
         addMessage("KRONIKA EKSPERYMENTU — kolejność zapisu");
         try (Cursor c = memory.all()) {
@@ -729,17 +744,77 @@ public class MainActivity extends Activity {
         messages.addView(view);
     }
 
+    private void showLibrary() {
+        SQLiteDatabase db=memory.getReadableDatabase();
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Biblioteka wiedzy ARII")
+            .setMessage(KnowledgeLibrary.overview(db))
+            .setPositiveButton("Zamknij",null)
+            .setNeutralButton("Usuń dokument",(dialog,which)->chooseDocumentToRemove())
+            .setNegativeButton("Dodaj plik",(dialog,which)->{
+                Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                startActivityForResult(intent,DOCUMENT_REQUEST);
+            }).show();
+    }
+    private void chooseDocumentToRemove() {
+        java.util.ArrayList<Long> ids=new java.util.ArrayList<>();
+        java.util.ArrayList<String> names=new java.util.ArrayList<>();
+        try(Cursor c=memory.getReadableDatabase().rawQuery(
+            "SELECT id,title FROM library_docs ORDER BY id DESC",null)) {
+            while(c.moveToNext()){ids.add(c.getLong(0));names.add(c.getString(1));}
+        }
+        if(ids.isEmpty()){Toast.makeText(this,"Biblioteka jest pusta",Toast.LENGTH_SHORT).show();return;}
+        new android.app.AlertDialog.Builder(this).setTitle("Wybierz dokument do usunięcia")
+            .setItems(names.toArray(new String[0]),(dialog,which)->{
+                new android.app.AlertDialog.Builder(this).setTitle("Potwierdź usunięcie")
+                    .setMessage("Usunąć z biblioteki: "+names.get(which)+"?")
+                    .setNegativeButton("Anuluj",null)
+                    .setPositiveButton("Usuń",(d,w)->{
+                        KnowledgeLibrary.remove(memory.getWritableDatabase(),ids.get(which));
+                        Toast.makeText(this,"Usunięto dokument",Toast.LENGTH_SHORT).show();
+                        neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+                    }).show();
+            }).setNegativeButton("Anuluj",null).show();
+    }
+    private void importDocument(Uri uri) {
+        if(busy)return;
+        final String name=KnowledgeLibrary.name(this,uri);
+        setBusy(true,"ARIA czyta dokument: "+name);
+        worker.execute(()->{
+            try {
+                String content=KnowledgeLibrary.extract(this,uri,name);
+                int parts=KnowledgeLibrary.add(memory.getWritableDatabase(),name,
+                    name.substring(name.lastIndexOf('.')+1),content);
+                ui.post(()->{
+                    setBusy(false,"Dodano "+parts+" fragmentów wiedzy");
+                    neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+                    new android.app.AlertDialog.Builder(this)
+                        .setTitle("ARIA przeczytała dokument")
+                        .setMessage(name+"\nZapisano "+parts+" fragmentów.\n\nMożesz teraz zadawać pytania o jego treść. Wiedza jest przechowywana lokalnie.")
+                        .setPositiveButton("OK",null).show();
+                });
+            }catch(Exception e){ui.post(()->{
+                setBusy(false,"Błąd odczytu");
+                new android.app.AlertDialog.Builder(this).setTitle("Nie udało się przeczytać pliku")
+                    .setMessage(e.getMessage()).setPositiveButton("OK",null).show();
+            });}
+        });
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         if (requestCode == MODEL_REQUEST) { importModel(data.getData()); return; }
+        if (requestCode == DOCUMENT_REQUEST) { importDocument(data.getData()); return; }
         if (requestCode == IMPORT_REQUEST) { importJson(data.getData()); return; }
         if (requestCode != EXPORT_REQUEST) return;
         Uri destination = data.getData();
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.6");
+            root.put("version", "1.7");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
