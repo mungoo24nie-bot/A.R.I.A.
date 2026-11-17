@@ -92,12 +92,13 @@ final class RelationalMemory {
 
     static String answer(SQLiteDatabase db, String question) {
         String q = norm(question);
-        boolean dogQuestion = (q.contains("ps") || q.contains("bajgiel") ||
+        boolean dogQuestion = (q.contains("pies") || q.contains("psie") || q.contains("psa") || q.contains("psu") ||
             q.contains("kundel") || q.contains("zwierzak"));
         boolean asking = q.contains("?") || q.startsWith("opowiedz") ||
             q.startsWith("przypomnij") || q.startsWith("co wiesz");
-        if (!dogQuestion || !asking) return null;
         String[] name = value(find(db, "user", "dog_name"));
+        if (name != null && q.contains(norm(name[0]))) dogQuestion = true;
+        if (!dogQuestion || !asking) return null;
         if (name == null) return "Nie mam jeszcze potwierdzonych informacji o Twoim psie.";
         String subject = "dog:" + norm(name[0]);
         String[] breed = value(find(db, subject, "breed"));
@@ -107,7 +108,7 @@ final class RelationalMemory {
         StringBuilder out = new StringBuilder();
         out.append("Twój pies ma na imię ").append(name[0])
            .append(" (Twoja wiadomość #").append(name[1]).append(").");
-        if (breed != null) out.append(" Jest ").append(breed[0])
+        if (breed != null) out.append(" Rasa: ").append(breed[0])
             .append(" (wiadomość #").append(breed[1]).append(").");
         if (found != null) out.append(" ").append("Twoja ")
             .append(found[0]).append(" (wiadomość #").append(found[1]).append(").");
