@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -49,7 +50,7 @@ public class MainActivity extends Activity {
     private static final int MODEL_REQUEST = 103;
     private static final String MODEL_FILENAME = "aria-qwen.gguf";
     private static final int MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
-    private static final int MAX_OUTPUT_TOKENS = 160;
+    private static final int MAX_OUTPUT_TOKENS = 240;
 
     static {
         System.loadLibrary("aria_native");
@@ -143,15 +144,21 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.4");
+        title.setText("A.R.I.A. 1.5");
         title.setTextSize(25);
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(Color.rgb(128, 232, 255));
+        title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        title.setLetterSpacing(0.12f);
         title.setGravity(Gravity.CENTER);
         root.addView(title);
         TextView subtitle = new TextView(this);
-        subtitle.setText("Lokalny model językowy • pamięć SQLite");
-        subtitle.setTextColor(Color.LTGRAY);
+        subtitle.setText(AriaBranding.styledAcronym());
+        subtitle.setTextSize(13);
+        subtitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        subtitle.setLetterSpacing(0.025f);
+        subtitle.setTextColor(Color.rgb(178, 221, 238));
         subtitle.setGravity(Gravity.CENTER);
+        subtitle.setPadding(6, 8, 6, 14);
         root.addView(subtitle);
         // Wszystkie narzędzia są dostępne z jednego przycisku MENU.
         Button menuButton = makeButton("☰  MENU");
@@ -164,6 +171,7 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 4, 3, "Wybierz lokalny model GGUF");
             popup.getMenu().add(0, 5, 4, "Tryb diagnostyczny: " + (diagnosticMode ? "WŁ." : "WYŁ."));
             popup.getMenu().add(0, 6, 5, "Statystyki pamięci");
+            popup.getMenu().add(0, 7, 6, "Model i pamięć • informacje techniczne");
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
@@ -172,7 +180,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.4.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.5.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -206,6 +214,16 @@ public class MainActivity extends Activity {
                             .setPositiveButton("OK", null).show();
                         return true;
                     }
+                    case 7: {
+                        new android.app.AlertDialog.Builder(this)
+                            .setTitle("A.R.I.A. • Informacje techniczne")
+                            .setMessage("Model językowy: lokalny GGUF (llama.cpp)\\n" +
+                                "Pamięć trwała: SQLite\\n" +
+                                "Model: " + (modelFile().exists() ? "zapisany na urządzeniu" : "nie wybrano") +
+                                "\\nTryb diagnostyczny: " + (diagnosticMode ? "włączony" : "wyłączony"))
+                            .setPositiveButton("OK", null).show();
+                        return true;
+                    }
                     default: return false;
                 }
             });
@@ -216,6 +234,7 @@ public class MainActivity extends Activity {
         status.setTextSize(12);
         status.setPadding(8, 0, 8, 8);
         root.addView(status);
+        status.setVisibility(View.GONE);
         status.setText(modelFile().exists() ? "Plik modelu jest na telefonie. Gotowy do wczytania." : "Brak modelu. Pobierz Qwen3-0.6B-Q4_K_M.gguf i wybierz plik.");
         FrameLayout conversationPanel = new FrameLayout(this);
         neuralBackground = new NeuralBackground(this);
@@ -267,11 +286,15 @@ public class MainActivity extends Activity {
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
         long eventId = memory.add("user", message, "użytkownik");
-        boolean correctionSaved = LearningMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        String factAck = rememberUserFact(message, eventId);
-        boolean relationalSaved = RelationalMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        boolean topicSaved = TopicMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        boolean contextSaved = ConversationMemory.ingest(memory.getWritableDatabase(), message, eventId);
+        boolean correctionSaved = !diagnosticMode &&
+            LearningMemory.ingest(memory.getWritableDatabase(), message, eventId);
+        String factAck = diagnosticMode ? null : rememberUserFact(message, eventId);
+        boolean relationalSaved = !diagnosticMode &&
+            RelationalMemory.ingest(memory.getWritableDatabase(), message, eventId);
+        boolean topicSaved = !diagnosticMode &&
+            TopicMemory.ingest(memory.getWritableDatabase(), message, eventId);
+        boolean contextSaved = !diagnosticMode &&
+            ConversationMemory.ingest(memory.getWritableDatabase(), message, eventId);
         if (factAck == null && (relationalSaved || topicSaved || contextSaved))
             factAck = "Zapisałam tę informację w kronice i powiązałam ją z tematem rozmowy.";
         input.setText("");
@@ -305,8 +328,9 @@ public class MainActivity extends Activity {
             showConversation();
             return;
         }
+        final boolean diagnosticForTurn = diagnosticMode;
         String prompt = DialogueEngine.make(memory.getReadableDatabase(), message,
-            memoryQuestion, diagnosticMode, false, eventId);
+            memoryQuestion, diagnosticForTurn, false, eventId);
         setBusy(true, "ARIA przygotowuje odpowiedź lokalnie. Pierwsze wczytanie może potrwać...");
         worker.execute(() -> {
             try {
@@ -316,7 +340,7 @@ public class MainActivity extends Activity {
                 String answer = DialogueEngine.clean(new String(bytes, StandardCharsets.UTF_8));
                 if (DialogueEngine.invalid(answer, message)) {
                     String retryPrompt = DialogueEngine.make(memory.getReadableDatabase(),
-                        message, memoryQuestion, diagnosticMode, true, eventId);
+                        message, memoryQuestion, diagnosticForTurn, true, eventId);
                     byte[] retryBytes = nativeGenerate(retryPrompt, MAX_OUTPUT_TOKENS);
                     if (retryBytes != null) {
                         String retried = DialogueEngine.clean(
@@ -325,10 +349,10 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (DialogueEngine.invalid(answer, message))
-                    answer = "Nie udało mi się sformułować poprawnej odpowiedzi. Spróbujmy inaczej.";
+                    answer = "Nie udało mi się jeszcze odpowiedzieć sensownie. Spróbuj zadać pytanie inaczej.";
                 final String finalAnswer = answer;
                 ui.post(() -> {
-                    memory.add("aria", finalAnswer, diagnosticMode ?
+                    memory.add("aria", finalAnswer, diagnosticForTurn ?
                         "test diagnostyczny modelu — bez pamięci" :
                         "lokalny model GGUF / llama.cpp — generacja, możliwe pomyłki");
                     setBusy(false, "Model załadowany • odpowiedzi generowane na telefonie");
@@ -692,7 +716,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.4");
+            root.put("version", "1.5");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
