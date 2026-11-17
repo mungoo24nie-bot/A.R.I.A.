@@ -38,7 +38,6 @@ Java_pl_aria_app_MainActivity_nativeLoadModel(JNIEnv * env, jclass, jstring path
     }
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
-    params.use_mmap = true;
     current_model = llama_model_load_from_file(new_path.c_str(), params);
     if (!current_model) return JNI_FALSE;
     current_model_path = new_path;
