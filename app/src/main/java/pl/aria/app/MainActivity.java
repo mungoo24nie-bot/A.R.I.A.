@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 0.9");
+        title.setText("A.R.I.A. 1.0");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -204,7 +204,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.9.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.0.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -244,6 +244,7 @@ public class MainActivity extends Activity {
         String known = answerFromFacts(message);
         if (known == null) known = RelationalMemory.answer(memory.getReadableDatabase(), message);
         if (known == null) known = TopicMemory.answer(memory.getReadableDatabase(), message);
+        if (known == null) known = EvidenceAnswer.answer(memory.getReadableDatabase(), message);
         if (known == null) known = ConversationMemory.answer(memory.getReadableDatabase(), message);
         if (known != null) {
             memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
@@ -606,7 +607,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "0.9");
+            root.put("version", "1.0");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
