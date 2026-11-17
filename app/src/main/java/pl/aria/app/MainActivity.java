@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
     private static class MemoryDb extends SQLiteOpenHelper {
-        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 6); }
+        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 7); }
         @Override public void onCreate(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, type TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL)");
             createFacts(db);
@@ -81,13 +81,15 @@ public class MainActivity extends Activity {
             TopicMemory.create(db);
             ConversationMemory.create(db);
             LearningMemory.create(db);
+            PersonalityMemory.create(db);
         }
         @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             if (oldVersion < 2) createFacts(db);
             if (oldVersion < 3) RelationalMemory.create(db);
             if (oldVersion < 4) TopicMemory.create(db);
             if (oldVersion < 5) ConversationMemory.create(db);
-            if (oldVersion < 6) LearningMemory.create(db); // Nigdy nie usuwaj events.
+            if (oldVersion < 6) LearningMemory.create(db);
+            if (oldVersion < 7) PersonalityMemory.create(db); // Nigdy nie usuwaj events.
         }
         private static void createFacts(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE IF NOT EXISTS facts (fact_key TEXT PRIMARY KEY, fact_value TEXT NOT NULL, source_event_id INTEGER NOT NULL, updated_at TEXT NOT NULL)");
@@ -144,7 +146,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.5");
+        title.setText("A.R.I.A. 1.6");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(128, 232, 255));
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -172,6 +174,7 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 5, 4, "Tryb diagnostyczny: " + (diagnosticMode ? "WŁ." : "WYŁ."));
             popup.getMenu().add(0, 6, 5, "Statystyki pamięci");
             popup.getMenu().add(0, 7, 6, "Model i pamięć • informacje techniczne");
+            popup.getMenu().add(0, 8, 7, "Osobowość i zapamiętane preferencje");
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
@@ -180,7 +183,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.5.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.6.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -224,6 +227,13 @@ public class MainActivity extends Activity {
                             .setPositiveButton("OK", null).show();
                         return true;
                     }
+                    case 8: {
+                        new android.app.AlertDialog.Builder(this)
+                            .setTitle("ARIA • styl rozmowy")
+                            .setMessage(PersonalityMemory.overview(memory.getReadableDatabase()))
+                            .setPositiveButton("OK",null).show();
+                        return true;
+                    }
                     default: return false;
                 }
             });
@@ -261,6 +271,8 @@ public class MainActivity extends Activity {
         bottom.addView(send);
         root.addView(bottom);
         setContentView(root);
+        memory.getWritableDatabase().execSQL(
+            "DELETE FROM facts WHERE fact_key='user_name' AND lower(fact_value)='albo'");
         rebuildFacts();
         showConversation();
 
@@ -286,9 +298,12 @@ public class MainActivity extends Activity {
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
         long eventId = memory.add("user", message, "użytkownik");
+        boolean preferenceSaved = !diagnosticMode &&
+            PersonalityMemory.learn(memory.getWritableDatabase(), message, eventId);
         boolean correctionSaved = !diagnosticMode &&
             LearningMemory.ingest(memory.getWritableDatabase(), message, eventId);
         String factAck = diagnosticMode ? null : rememberUserFact(message, eventId);
+        if(preferenceSaved) factAck = "Zapisałam Twoją preferencję sposobu rozmowy. Możesz ją zmienić w dowolnej chwili.";
         boolean relationalSaved = !diagnosticMode &&
             RelationalMemory.ingest(memory.getWritableDatabase(), message, eventId);
         boolean topicSaved = !diagnosticMode &&
@@ -304,24 +319,9 @@ public class MainActivity extends Activity {
             return;
         }
         showConversation();
-        boolean memoryQuestion = !diagnosticMode && isMemoryQuestion(message);
-        String known = memoryQuestion ? answerFromFacts(message) : null;
-        if (known == null && memoryQuestion) known = RelationalMemory.answer(memory.getReadableDatabase(), message);
-        if (known == null && memoryQuestion) known = TopicMemory.answer(memory.getReadableDatabase(), message);
-        if (known == null && memoryQuestion) known = EvidenceAnswer.answer(memory.getReadableDatabase(), message);
-        if (known == null && memoryQuestion) known = ConversationMemory.answer(memory.getReadableDatabase(), message);
-        // Pamięć ogólna nie zwraca już surowej listy przypadkowych dopasowań.
-        if (known != null) {
-            memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
-            showConversation();
-            return;
-        }
-        String exact = memoryQuestion ? exactMemoryAnswer(message) : null;
-        if (exact != null) {
-            memory.add("aria", exact, "cytat z kroniki SQLite — odpowiedź zweryfikowana");
-            showConversation();
-            return;
-        }
+        boolean memoryQuestion = !diagnosticMode && MemoryContext.asking(message);
+        // Wszystkie pytania wielotematyczne przechodzą przez jeden silnik dialogu.
+        // Stare specjalizowane odpowiedzi pozostają w kodzie, ale nie przechwytują pytań.
         if (!modelFile().exists()) {
             String answer = respondWithoutModel(message);
             memory.add("aria", answer, "odpowiedź regułowa — model nie został jeszcze wybrany");
@@ -387,11 +387,18 @@ public class MainActivity extends Activity {
         String clean = text.trim();
         String normalized = norm(clean);
         // Nie interpretuj pytań ani cytowanych wypowiedzi jako deklaracji faktów.
-        if (clean.contains("?")) return null;
+        if (clean.contains("?") || normalized.contains("jak mam na imie") ||
+            normalized.contains("na imie albo") || normalized.contains("na przyklad") ||
+            normalized.contains("np.") || normalized.contains("powiedz mi") ||
+            normalized.contains("podalem ci") || normalized.contains("jak sie nazywam"))
+            return null;
         java.util.regex.Matcher name = java.util.regex.Pattern.compile(
-            "(?iu)(?:^|[.!\\s])(?:jestem|mam na imi[eę]|nazywam si[eę])\\s+([\\p{L}]{2,24})(?=\\s|[.!]|$)").matcher(clean);
+            "(?iu)(?:^|[.!\\s])(?:mam na imi[eę]|nazywam si[eę])\\s+([\\p{L}]{2,24})(?=\\s|[.!]|$)").matcher(clean);
         if (name.find()) {
             String value = name.group(1);
+            if (value.equalsIgnoreCase("albo") || value.equalsIgnoreCase("jak") ||
+                value.equalsIgnoreCase("gdzie") || value.equalsIgnoreCase("przykład"))
+                return null;
             memory.saveFact("user_name", value, eventId);
             return "Zapamiętałam, że masz na imię " + value + ". Źródło: Twoja wiadomość w kronice.";
         }
@@ -664,6 +671,22 @@ public class MainActivity extends Activity {
                 }
                 db.setTransactionSuccessful();
             } finally { db.endTransaction(); }
+            JSONArray preferences=json.optJSONArray("preferences");
+            if(preferences!=null) {
+                for(int i=0;i<preferences.length() && i<20;i++) {
+                    JSONObject item=preferences.optJSONObject(i);
+                    if(item==null)continue;
+                    String key=item.optString("key");
+                    String value=item.optString("value");
+                    if(!("address".equals(key)||"style".equals(key)||"preference".equals(key))||
+                       value.length()<3||value.length()>170)continue;
+                    ContentValues pv=new ContentValues();
+                    pv.put("key",key);
+                    pv.put("value",value);
+                    pv.put("source_event_id",item.optLong("source_event_id",0));
+                    db.insertWithOnConflict("aria_preferences",null,pv,SQLiteDatabase.CONFLICT_REPLACE);
+                }
+            }
             rebuildFacts();
             Toast.makeText(this, "Zaimportowano " + imported + " nowych wpisów", Toast.LENGTH_LONG).show();
             showChronicle();
@@ -675,7 +698,7 @@ public class MainActivity extends Activity {
     private void showConversation() {
         if (neuralBackground != null) neuralBackground.setGrowth(memory.count());
         messages.removeAllViews();
-        addMessage("ARIA 1.4 — model działa lokalnie. Kronika i pamięć SQLite zostały zachowane.");
+        addMessage("");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
                 String type = c.getString(2);
@@ -716,7 +739,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "1.5");
+            root.put("version", "1.6");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
@@ -730,6 +753,18 @@ public class MainActivity extends Activity {
                 }
             }
             root.put("events", events);
+            JSONArray preferences = new JSONArray();
+            try (Cursor c = memory.getReadableDatabase().rawQuery(
+                    "SELECT key,value,source_event_id FROM aria_preferences",null)) {
+                while(c.moveToNext()) {
+                    JSONObject item=new JSONObject();
+                    item.put("key",c.getString(0));
+                    item.put("value",c.getString(1));
+                    item.put("source_event_id",c.getLong(2));
+                    preferences.put(item);
+                }
+            }
+            root.put("preferences",preferences);
             try (OutputStream output = getContentResolver().openOutputStream(destination)) {
                 if (output == null) throw new IllegalStateException("Nie można zapisać pliku");
                 output.write(root.toString(2).getBytes(StandardCharsets.UTF_8));
