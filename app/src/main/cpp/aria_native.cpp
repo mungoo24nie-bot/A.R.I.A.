@@ -38,6 +38,7 @@ Java_pl_aria_app_MainActivity_nativeLoadModel(JNIEnv * env, jclass, jstring path
     }
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
+    params.use_mmap = true;
     current_model = llama_model_load_from_file(new_path.c_str(), params);
     if (!current_model) return JNI_FALSE;
     current_model_path = new_path;
@@ -81,7 +82,7 @@ Java_pl_aria_app_MainActivity_nativeGenerate(JNIEnv * env, jclass, jstring promp
     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
-    llama_sampler_chain_add(sampler, llama_sampler_init_dist(12345));
+    llama_sampler_chain_add(sampler, llama_sampler_init_dist(0xA71A));
 
     bool success = true;
     for (int start = 0; start < token_count; start += 512) {
@@ -95,8 +96,10 @@ Java_pl_aria_app_MainActivity_nativeGenerate(JNIEnv * env, jclass, jstring promp
         for (int i = 0; i < limit; i++) {
             llama_token token = llama_sampler_sample(sampler, ctx, -1);
             if (llama_vocab_is_eog(vocab, token)) break;
+            // Aktualizuj historię samplera po każdym wygenerowanym tokenie.
+            llama_sampler_accept(sampler, token);
             char buffer[8192];
-            const int written = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, true);
+            const int written = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, false);
             if (written < 0) { success = false; break; }
             result.append(buffer, written);
             if (i + 1 < limit) {
