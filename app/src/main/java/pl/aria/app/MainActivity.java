@@ -68,17 +68,19 @@ public class MainActivity extends Activity {
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
     private static class MemoryDb extends SQLiteOpenHelper {
-        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 4); }
+        MemoryDb(Activity activity) { super(activity, "aria_memory.db", null, 5); }
         @Override public void onCreate(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, type TEXT NOT NULL, content TEXT NOT NULL, source TEXT NOT NULL)");
             createFacts(db);
             RelationalMemory.create(db);
             TopicMemory.create(db);
+            ConversationMemory.create(db);
         }
         @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             if (oldVersion < 2) createFacts(db);
             if (oldVersion < 3) RelationalMemory.create(db);
-            if (oldVersion < 4) TopicMemory.create(db); // Nigdy nie usuwaj events.
+            if (oldVersion < 4) TopicMemory.create(db);
+            if (oldVersion < 5) ConversationMemory.create(db); // Nigdy nie usuwaj events.
         }
         private static void createFacts(SQLiteDatabase db) {
             db.execSQL("CREATE TABLE IF NOT EXISTS facts (fact_key TEXT PRIMARY KEY, fact_value TEXT NOT NULL, source_event_id INTEGER NOT NULL, updated_at TEXT NOT NULL)");
@@ -135,7 +137,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 0.8");
+        title.setText("A.R.I.A. 0.9");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -202,7 +204,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.8.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.9.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -229,8 +231,9 @@ public class MainActivity extends Activity {
         String factAck = rememberUserFact(message, eventId);
         boolean relationalSaved = RelationalMemory.ingest(memory.getWritableDatabase(), message, eventId);
         boolean topicSaved = TopicMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        if (factAck == null && (relationalSaved || topicSaved))
-            factAck = "Zapisałam tę informację w pamięci relacyjnej. Możesz mnie o nią zapytać.";
+        boolean contextSaved = ConversationMemory.ingest(memory.getWritableDatabase(), message, eventId);
+        if (factAck == null && (relationalSaved || topicSaved || contextSaved))
+            factAck = "Zapisałam tę informację w kronice i powiązałam ją z tematem rozmowy.";
         input.setText("");
         if (factAck != null) {
             memory.add("aria", factAck, "potwierdzenie faktu z wypowiedzi użytkownika — SQLite");
@@ -241,6 +244,7 @@ public class MainActivity extends Activity {
         String known = answerFromFacts(message);
         if (known == null) known = RelationalMemory.answer(memory.getReadableDatabase(), message);
         if (known == null) known = TopicMemory.answer(memory.getReadableDatabase(), message);
+        if (known == null) known = ConversationMemory.answer(memory.getReadableDatabase(), message);
         if (known != null) {
             memory.add("aria", known, "odczyt faktu z SQLite — źródło: użytkownik");
             showConversation();
@@ -291,6 +295,7 @@ public class MainActivity extends Activity {
                     rememberUserFact(c.getString(3), c.getLong(0));
                     RelationalMemory.ingest(memory.getWritableDatabase(), c.getString(3), c.getLong(0));
                     TopicMemory.ingest(memory.getWritableDatabase(), c.getString(3), c.getLong(0));
+                    ConversationMemory.ingest(memory.getWritableDatabase(), c.getString(3), c.getLong(0));
                 }
             }
         }
@@ -430,6 +435,8 @@ public class MainActivity extends Activity {
               .append("<|im_start|>user\n");
         prompt.append(RelationalMemory.context(memory.getReadableDatabase()));
         prompt.append(TopicMemory.context(memory.getReadableDatabase(), question));
+        if (ConversationMemory.isResidenceRelated(question))
+            prompt.append(ConversationMemory.context(memory.getReadableDatabase()));
         String[] userName = memory.fact("user_name");
         String[] ariaName = memory.fact("aria_name");
         if (userName != null) prompt.append("FAKT OD UŻYTKOWNIKA: imię użytkownika = ").append(userName[0]).append(" (wiadomość #").append(userName[1]).append(").\n");
@@ -599,7 +606,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "0.8");
+            root.put("version", "0.9");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
