@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 0.5");
+        title.setText("A.R.I.A. 0.5.1");
         title.setTextSize(25);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -179,7 +179,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/json");
-            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.5.json");
+            intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-0.5.1.json");
             startActivityForResult(intent, EXPORT_REQUEST);
         });
     }
@@ -244,7 +244,7 @@ public class MainActivity extends Activity {
     // Odpowiedź dosłowna pochodzi z SQLite, nie z domysłu modelu.
     private String exactMemoryAnswer(String question) {
         String q = norm(question);
-        boolean first = q.contains("pierwsz") && (q.contains("slow") || q.contains("wiadom") || q.contains("powiedzial") || q.contains("napisal"));
+        boolean first = q.contains("pierwsz") && (q.contains("slow") || q.contains("wiadom") || q.contains("powiedzial") || q.contains("napisal") || q.contains("archiw") || q.contains("cytat"));
         if (!first) return null;
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
@@ -359,7 +359,7 @@ public class MainActivity extends Activity {
     }
 
     private String norm(String s) {
-        return Normalizer.normalize(s.toLowerCase(new Locale("pl", "PL")), Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        return Normalizer.normalize(s.toLowerCase(new Locale("pl", "PL")), Normalizer.Form.NFD).replaceAll("\\p{M}+", "").replace("ł", "l");
     }
     private String respondWithoutModel(String question) {
         String q = norm(question);
@@ -503,7 +503,7 @@ public class MainActivity extends Activity {
         try {
             JSONObject root = new JSONObject();
             root.put("app", "A.R.I.A.");
-            root.put("version", "0.5");
+            root.put("version", "0.5.1");
             JSONArray events = new JSONArray();
             try (Cursor c = memory.all()) {
                 while (c.moveToNext()) {
