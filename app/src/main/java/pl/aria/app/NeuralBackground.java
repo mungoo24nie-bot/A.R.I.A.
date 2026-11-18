@@ -93,7 +93,8 @@ public final class NeuralBackground extends View {
         float w=getWidth(),h=getHeight();
         for(String module:positions.keySet()){
             if(!module.equals(active)&&!module.equals(event))continue;
-            float[] xy=positions.get(module),dx=e.getX()-w*xy[0],dy=e.getY()-h*xy[1];
+            float[] xy=positions.get(module);
+            float dx=e.getX()-w*xy[0],dy=e.getY()-h*xy[1];
             float r=Math.min(w,h)*.13f;
             if(dx*dx+dy*dy<=r*r){
                 String text=module.equals(active)?detail:eventDetail;
