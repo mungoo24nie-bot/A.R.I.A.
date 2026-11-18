@@ -85,8 +85,8 @@ final class DialogueEngine {
             }
         }
         out.append("<|im_start|>user\n").append(question)
-           .append(" /no_think").append("<|im_end|>\n")
-           .append("<|im_start|>assistant\n<think>\n</think>\n");
+           .append("<|im_end|>\n")
+           .append("<|im_start|>assistant\n");
         return out.toString();
     }
     static String clean(String raw) {

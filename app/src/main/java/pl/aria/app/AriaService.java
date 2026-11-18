@@ -122,12 +122,20 @@ public final class AriaService extends Service {
             try {
                 if((prompt==null||prompt.isEmpty()) && (question==null||!AriaInternet.requested(question)))throw new IllegalArgumentException("Brak pytania");
                 if(cancelRequested)throw new InterruptedException("Zadanie anulowano");
+                String localAnswer=AriaCognitiveCore.answer(question);
                 if(question!=null && AriaInternet.requested(question)) {
                     setPhase("Pobieram wyniki wyszukiwania");
                     // Search results are presented as attributed excerpts, never invented by the model.
                     String evidence=AriaInternet.fetch(question);
                     answer=cancelRequested?"Wyszukiwanie anulowano na Twoje polecenie.":"Znalazłam następujące wyniki internetowe. To fragmenty, nie potwierdzone fakty.\n\n"+evidence;
                     source="wyniki internetu na polecenie — ARIA 2.0.2";
+                } else if(localAnswer!=null) {
+                    setPhase("Rozwiązuję zadanie w rdzeniu ARII");
+                    answer=localAnswer;
+                    source="własny rdzeń poznawczy ARII — arytmetyka";
+                    rawAnswerChars=answer.length();
+                    cleanAnswerChars=answer.length();
+                    qualityReason=AnswerQuality.reason(answer,question);
                 } else {
                     setPhase("Wczytuję lokalny model");
                     java.io.File model=new java.io.File(getFilesDir(),"aria-qwen.gguf");

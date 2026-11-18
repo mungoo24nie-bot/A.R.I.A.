@@ -20,7 +20,10 @@ final class AnswerQuality {
         if (a.equals(q) && !q.isEmpty()) return "echo";
         if (raw.contains("<|im_start|>") || raw.contains("<|im_end|>") ||
             raw.contains("<think>") || raw.contains("</think>")) return "model_markers";
-        if (a.startsWith("okay the user") || a.startsWith("i should") ||
+        if (a.startsWith("slucham wypowiedz uzytkownika") ||
+            a.startsWith("odpowiedz powinna") ||
+            a.contains("odpowiedz powinna zawierac") ||
+            a.startsWith("okay the user") || a.startsWith("i should") ||
             a.startsWith("the user said") || a.startsWith("let me check")) return "internal_monologue";
         if (a.contains("nowa wiadomosc") || a.contains("ostatnia rozmowa") ||
             a.contains("odpowiedz na to pytanie") || a.contains("co wiedzisz") ||
