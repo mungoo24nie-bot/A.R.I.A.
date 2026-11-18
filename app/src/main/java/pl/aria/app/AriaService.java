@@ -95,7 +95,8 @@ public final class AriaService extends Service {
                 else if(level>=PowerManager.THERMAL_STATUS_MODERATE)configuredThreads=Math.min(configuredThreads,3);
             }
         }
-        MainActivity.nativeConfigureThreads(configuredThreads);
+        final int effectiveThreads=configuredThreads;
+        MainActivity.nativeConfigureThreads(effectiveThreads);
         startElapsed=SystemClock.elapsedRealtime();startWall=System.currentTimeMillis();startCpu=android.os.Process.getElapsedCpuTime();taskId=java.util.UUID.randomUUID().toString();setPhase("Przygotowuję odpowiedź");
         startForeground(NOTIFICATION_ID,notice("Myślę nad odpowiedzią","Czas przetwarzania: 00:00",true,startWall));
         AriaTaskJournal.start(this,taskId,startWall);
@@ -186,7 +187,7 @@ public final class AriaService extends Service {
                 db.execSQL("CREATE TABLE IF NOT EXISTS aria_runtime_config (task_id TEXT PRIMARY KEY, threads INTEGER, cancelled INTEGER, saved INTEGER)");
                 ContentValues config=new ContentValues();
                 config.put("task_id",taskId);
-                config.put("threads",configuredThreads);
+                config.put("threads",effectiveThreads);
                 config.put("cancelled",cancelRequested?1:0);
                 config.put("saved",saved?1:0);
                 db.insertWithOnConflict("aria_runtime_config",null,config,SQLiteDatabase.CONFLICT_REPLACE);
