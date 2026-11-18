@@ -17,6 +17,7 @@ static std::atomic<int> tokens_generated{0};
 static std::atomic<int> tokens_prompt{0};
 static std::atomic<long long> prefill_ms{0};
 static std::atomic<long long> decode_ms{0};
+static std::atomic<int> configured_threads{4};
 static std::atomic<int> phase{0}; // 0 idle, 1 prefill, 2 decode, 3 finished, 4 cancelled, 5 error
 using Clock = std::chrono::steady_clock;
 static long long millis(Clock::time_point start) {
@@ -26,6 +27,10 @@ static jbyteArray to_java_bytes(JNIEnv * env, const std::string & text) {
     auto * result = env->NewByteArray(static_cast<jsize>(text.size()));
     if (result) env->SetByteArrayRegion(result, 0, static_cast<jsize>(text.size()), reinterpret_cast<const jbyte *>(text.data()));
     return result;
+}
+extern "C" JNIEXPORT void JNICALL
+Java_pl_aria_app_MainActivity_nativeConfigureThreads(JNIEnv *, jclass, jint threads) {
+    configured_threads.store(std::max(1,std::min(6,(int)threads)));
 }
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_pl_aria_app_MainActivity_nativeInferenceStats(JNIEnv * env, jclass) {
@@ -98,8 +103,8 @@ Java_pl_aria_app_MainActivity_nativeGenerate(JNIEnv * env, jclass, jstring promp
     params.n_ctx = 2048;
     params.n_batch = 256;
     params.n_ubatch = 128;
-    params.n_threads = 4;
-    params.n_threads_batch = 4;
+    params.n_threads = configured_threads.load();
+    params.n_threads_batch = configured_threads.load();
     llama_context * ctx = llama_init_from_model(current_model, params);
     if (!ctx) { phase.store(5); return nullptr; }
     llama_sampler_chain_params sample_params = llama_sampler_chain_default_params();
