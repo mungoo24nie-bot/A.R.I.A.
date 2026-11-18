@@ -195,16 +195,18 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 9, 8, "Biblioteka wiedzy ARII");
             popup.getMenu().add(0, 10, 9, "Dodaj książkę lub artykuł");
             popup.getMenu().add(0, 11, 10, "Praca w tle — stan i ograniczenia");
+            popup.getMenu().add(0, 13, 12, "Samorozwój — audyt i propozycje zmian");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
+                    case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 1: showChronicle(); return true;
                     case 2: {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.9.1.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.9.2.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }

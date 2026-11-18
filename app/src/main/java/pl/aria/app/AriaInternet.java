@@ -15,7 +15,7 @@ final class AriaInternet {
     static boolean requested(String message) {
         String s=DialogueEngine.normalize(message);
         boolean verb=s.matches("(?s).*(sprawdz|wyszukaj|poszukaj|znajdz|przeczytaj|otworz|zobacz|szukaj|przeszukaj|zweryfikuj).*");
-        return verb && (s.contains("internet")||s.contains("internetu")||s.contains("w internecie")||s.contains("w sieci")||s.contains("online")||s.contains("w google")||s.contains("na stronie")||s.contains("strone internetowa")||URL.matcher(message).find());
+        return verb && (s.contains("internet")||s.contains("internetu")||s.contains("w internecie")||s.contains("w sieci")||s.contains("online")||s.contains("w google")||s.contains("wyszukiwark")||s.contains("na stronie")||s.contains("strone internetowa")||URL.matcher(message).find());
     }
     static String fetch(String message) throws Exception {
         if(!requested(message))return "";
@@ -31,14 +31,14 @@ final class AriaInternet {
         f.setFeature("http://xml.org/sax/features/external-parameter-entities",false);
         f.setXIncludeAware(false);f.setExpandEntityReferences(false);
         NodeList items=f.newDocumentBuilder().parse(new ByteArrayInputStream(data)).getElementsByTagName("item");
-        StringBuilder out=new StringBuilder("Wyniki wyszukiwarki (fragmenty stron; sprawdź źródła):\\n");
+        StringBuilder out=new StringBuilder("Wyniki wyszukiwarki (fragmenty stron; sprawdź źródła):\n");
         int accepted=0;
         for(int i=0;i<items.getLength()&&accepted<4;i++){
             Element item=(Element)items.item(i);
             String link=field(item,"link");
             if(!safePublicHttps(link))continue;
-            out.append("Źródło: ").append(link).append("\\nTytuł: ").append(field(item,"title"))
-               .append("\\nFragment: ").append(field(item,"description")).append("\\n");
+            out.append("Źródło: ").append(link).append("\nTytuł: ").append(field(item,"title"))
+               .append("\nFragment: ").append(field(item,"description")).append("\n");
             accepted++;
         }
         if(accepted==0)throw new IOException("Brak wyników z dopuszczonych źródeł. Nie korzystam z Wikipedii.");
@@ -71,7 +71,7 @@ final class AriaInternet {
         if(!safePublicHttps(url))throw new SecurityException("Niedozwolony adres.");
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(8000);c.setReadTimeout(12000);
-        c.setRequestProperty("User-Agent","ARIA/1.9.1 (explicit user request)");
+        c.setRequestProperty("User-Agent","ARIA/2.0 (explicit user request)");
         try {
             if(c.getResponseCode()!=200)throw new IOException("Serwer zwrócił kod "+c.getResponseCode());
             try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
