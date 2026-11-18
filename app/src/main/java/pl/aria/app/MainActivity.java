@@ -203,12 +203,12 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 14, 13, "Wersja");
             popup.getMenu().add(0, 15, 14, "Wydajność silnika — pomiary");
             popup.getMenu().add(0, 17, 16, "Dziennik zadań i przerwań");
-            popup.getMenu().add(0, 18, 17, "Diagnostyka jakości odpowiedzi");
+            popup.getMenu().add(0, 19, 18, "Diagnostyka jakości odpowiedzi");
             popup.getMenu().add(0, 18, 17, "Wznów przerwane zadanie");
             popup.getMenu().add(0, 16, 15, "Wątki CPU — ustawienia silnika");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
-                if (busy && item.getItemId()!=14 && item.getItemId()!=15 && item.getItemId()!=17 && item.getItemId()!=18) return true;
+                if (busy && item.getItemId()!=14 && item.getItemId()!=15 && item.getItemId()!=17 && item.getItemId()!=18 && item.getItemId()!=19) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 14: showVersionInfo(); return true;
@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
                             .setNegativeButton("Anuluj",null).show();
                         return true;
                     }
-                    case 18: AnswerQuality.show(this); return true;
+                    case 19: AnswerQuality.show(this); return true;
                     case 17: new android.app.AlertDialog.Builder(this)
                         .setTitle("ARIA — dziennik zadań")
                         .setMessage(AriaTaskJournal.report(this))
