@@ -51,13 +51,13 @@ public class MainActivity extends Activity {
     private static final int DOCUMENT_REQUEST = 104;
     private static final String MODEL_FILENAME = "aria-qwen.gguf";
     private static final int MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
-    private static final int MAX_OUTPUT_TOKENS = 240;
+    private static final int MAX_OUTPUT_TOKENS = 120;
 
     static {
         System.loadLibrary("aria_native");
     }
-    private static native boolean nativeLoadModel(String modelPath);
-    private static native byte[] nativeGenerate(String prompt, int maxTokens);
+    static native boolean nativeLoadModel(String modelPath);
+    static native byte[] nativeGenerate(String prompt, int maxTokens);
     private static native void nativeUnloadModel();
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -70,6 +70,20 @@ public class MainActivity extends Activity {
     private TextView status;
     private Button send;
     private boolean busy = false;
+    private TextView thinkingStatus;
+    private boolean isChatVisible = true;
+    private int displayedCount = -1;
+    private final Runnable refresh = new Runnable() { @Override public void run() {
+        if (memory != null && messages != null) {
+            boolean running = AriaService.isWorking();
+            if (thinkingStatus != null) thinkingStatus.setText(running ? "● Analizuję pytanie…" : "● Gotowa do rozmowy");
+            if (neuralBackground != null) neuralBackground.setThinking(running);
+            if (busy != running) setBusy(running, running ? "ARIA pracuje w tle" : "Gotowa");
+            int count = memory.count();
+            if (isChatVisible && count != displayedCount) showConversation();
+        }
+        ui.postDelayed(this, 800);
+    }};
     private boolean diagnosticMode = false;
 
     // Wersja bazy pozostaje 1: aktualizacja nie usuwa wcześniejszych wydarzeń.
@@ -149,7 +163,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.7");
+        title.setText("A.R.I.A. 1.8");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(128, 232, 255));
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -180,6 +194,8 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 8, 7, "Osobowość i zapamiętane preferencje");
             popup.getMenu().add(0, 9, 8, "Biblioteka wiedzy ARII");
             popup.getMenu().add(0, 10, 9, "Dodaj książkę lub artykuł");
+            popup.getMenu().add(0, 11, 10, "Praca w tle — stan i ograniczenia");
+            popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
                 if (busy) return true;
                 switch (item.getItemId()) {
@@ -188,7 +204,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.7.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.8.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -247,6 +263,15 @@ public class MainActivity extends Activity {
                         startActivityForResult(intent,DOCUMENT_REQUEST);
                         return true;
                     }
+                    case 11: new android.app.AlertDialog.Builder(this)
+                        .setTitle("Praca w tle")
+                        .setMessage("ARIA może dokończyć rozpoczętą odpowiedź po opuszczeniu ekranu. Podczas pracy widoczne jest powiadomienie systemowe. Android może zatrzymać usługę przy braku zasobów lub wymuszonym zatrzymaniu aplikacji. Stan: " + (AriaService.isWorking()?"pracuje":"oczekuje"))
+                        .setPositiveButton("OK",null).show(); return true;
+                    case 12: new android.app.AlertDialog.Builder(this)
+                        .setTitle("Tryb generowania")
+                        .setSingleChoiceItems(new String[]{"Szybki — do 72 tokenów","Zrównoważony — do 120 tokenów","Dokładny — do 200 tokenów"},getPreferences(0).getInt("speed",1),
+                            (dialog,which)->{getPreferences(0).edit().putInt("speed",which).apply();dialog.dismiss();})
+                        .setNegativeButton("Anuluj",null).show();return true;
                     default: return false;
                 }
             });
@@ -270,8 +295,16 @@ public class MainActivity extends Activity {
         messages.setOrientation(LinearLayout.VERTICAL);
         messages.setBackgroundColor(Color.TRANSPARENT);
         scroll.addView(messages);
-        conversationPanel.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        thinkingStatus = new TextView(this);
+        thinkingStatus.setText("● Gotowa do rozmowy");
+        thinkingStatus.setTextSize(15);
+        thinkingStatus.setTextColor(Color.rgb(133, 231, 248));
+        thinkingStatus.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams statusParams = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        statusParams.bottomMargin = 12;
+        conversationPanel.addView(thinkingStatus, statusParams);
         root.addView(conversationPanel, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         input = new EditText(this);
@@ -284,14 +317,23 @@ public class MainActivity extends Activity {
         bottom.addView(send);
         root.addView(bottom);
         setContentView(root);
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},1818);
         memory.getWritableDatabase().execSQL(
             "DELETE FROM facts WHERE fact_key='user_name' AND lower(fact_value)='albo'");
         rebuildFacts();
         showConversation();
 
         send.setOnClickListener(v -> sendMessage());
+        ui.post(refresh);
     }
 
+    @Override protected void onDestroy() {
+        ui.removeCallbacks(refresh);
+        worker.shutdown();
+        super.onDestroy();
+    }
     private Button makeButton(String title) {
         Button button = new Button(this);
         button.setText(title);
@@ -332,6 +374,12 @@ public class MainActivity extends Activity {
             return;
         }
         showConversation();
+        String exact = AriaMath.answer(message);
+        if (exact != null && !diagnosticMode) {
+            memory.add("aria", exact, "weryfikowane obliczenie kalendarzowe — ARIA 1.8");
+            showConversation();
+            return;
+        }
         boolean memoryQuestion = !diagnosticMode && MemoryContext.asking(message);
         // Wszystkie pytania wielotematyczne przechodzą przez jeden silnik dialogu.
         // Stare specjalizowane odpowiedzi pozostają w kodzie, ale nie przechwytują pytań.
@@ -344,41 +392,21 @@ public class MainActivity extends Activity {
         final boolean diagnosticForTurn = diagnosticMode;
         String prompt = DialogueEngine.make(memory.getReadableDatabase(), message,
             memoryQuestion, diagnosticForTurn, false, eventId);
-        setBusy(true, "ARIA przygotowuje odpowiedź lokalnie. Pierwsze wczytanie może potrwać...");
-        worker.execute(() -> {
-            try {
-                if (!nativeLoadModel(modelFile().getAbsolutePath())) throw new IllegalStateException("Nie udało się wczytać GGUF. Sprawdź format i wolną pamięć RAM.");
-                byte[] bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS);
-                if (bytes == null) throw new IllegalStateException("Silnik zwrócił błąd.");
-                String answer = DialogueEngine.clean(new String(bytes, StandardCharsets.UTF_8));
-                if (DialogueEngine.invalid(answer, message)) {
-                    String retryPrompt = DialogueEngine.make(memory.getReadableDatabase(),
-                        message, memoryQuestion, diagnosticForTurn, true, eventId);
-                    byte[] retryBytes = nativeGenerate(retryPrompt, MAX_OUTPUT_TOKENS);
-                    if (retryBytes != null) {
-                        String retried = DialogueEngine.clean(
-                            new String(retryBytes, StandardCharsets.UTF_8));
-                        if (!DialogueEngine.invalid(retried, message)) answer = retried;
-                    }
-                }
-                if (DialogueEngine.invalid(answer, message))
-                    answer = "Nie udało mi się jeszcze odpowiedzieć sensownie. Spróbuj zadać pytanie inaczej.";
-                final String finalAnswer = answer;
-                ui.post(() -> {
-                    memory.add("aria", finalAnswer, diagnosticForTurn ?
-                        "test diagnostyczny modelu — bez pamięci" :
-                        "lokalny model GGUF / llama.cpp — generacja, możliwe pomyłki");
-                    setBusy(false, "Model załadowany • odpowiedzi generowane na telefonie");
-                    showConversation();
-                });
-            } catch (Exception e) {
-                ui.post(() -> {
-                    memory.add("system", "Błąd generowania modelu: " + e.getMessage(), "aplikacja ARIA 0.5");
-                    setBusy(false, "Błąd: " + e.getMessage());
-                    Toast.makeText(this, "Nie udało się wygenerować odpowiedzi", Toast.LENGTH_LONG).show();
-                });
-            }
-        });
+        // Android foreground service kontynuuje generowanie po wyjściu z ekranu.
+        Intent task = new Intent(this, AriaService.class);
+        task.putExtra("prompt", prompt);
+        task.putExtra("question", message);
+        task.putExtra("diagnostic", diagnosticForTurn);
+        int mode = getPreferences(0).getInt("speed",1);
+        task.putExtra("max_tokens", mode==0?72:mode==2?200:MAX_OUTPUT_TOKENS);
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(task);
+            else startService(task);
+            setBusy(true, "ARIA analizuje pytanie — możesz opuścić aplikację");
+        } catch(Exception e) {
+            memory.add("system", "Nie udało się uruchomić pracy w tle: " + e.getMessage(), "ARIA 1.8");
+            Toast.makeText(this, "Błąd usługi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     // Odpowiedź dosłowna pochodzi z SQLite, nie z domysłu modelu.
@@ -713,6 +741,8 @@ public class MainActivity extends Activity {
     private void showConversation() {
         if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
         messages.removeAllViews();
+        displayedCount = memory.count();
+        isChatVisible = true;
         addMessage("");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
@@ -726,6 +756,7 @@ public class MainActivity extends Activity {
     private void showChronicle() {
         if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
         messages.removeAllViews();
+        isChatVisible = false;
         addMessage("KRONIKA EKSPERYMENTU — kolejność zapisu");
         try (Cursor c = memory.all()) {
             while (c.moveToNext()) {
