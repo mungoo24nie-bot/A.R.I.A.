@@ -100,7 +100,10 @@ Java_pl_aria_app_MainActivity_nativeGenerate(JNIEnv * env, jclass, jstring promp
         phase.store(5); return nullptr;
     }
     llama_context_params params = llama_context_default_params();
-    params.n_ctx = 2048;
+    // Krótszy kontekst dla krótkich pytań ogranicza koszt pamięci KV.
+    const int output_limit = std::max(1,std::min(256,(int)max_tokens));
+    const int required_ctx = token_count + output_limit + 16;
+    params.n_ctx = required_ctx <= 1024 ? 1024 : 2048;
     params.n_batch = 256;
     params.n_ubatch = 128;
     params.n_threads = configured_threads.load();
@@ -126,12 +129,12 @@ Java_pl_aria_app_MainActivity_nativeGenerate(JNIEnv * env, jclass, jstring promp
     if(success) {
         phase.store(2);
         auto decode_start=Clock::now();
-        const int limit=std::max(1,std::min(256,(int)max_tokens));
+        const int limit=output_limit;
         for(int i=0;i<limit;i++){
             if(cancel_requested.load()){success=false;break;}
             llama_token token=llama_sampler_sample(sampler,ctx,-1);
             if(llama_vocab_is_eog(vocab,token))break;
-            llama_sampler_accept(sampler,token);
+            // llama_sampler_sample() sam akceptuje próbkę; bez podwójnego accept.
             char buffer[8192];
             const int written=llama_token_to_piece(vocab,token,buffer,sizeof(buffer),0,false);
             if(written<0){success=false;break;}
