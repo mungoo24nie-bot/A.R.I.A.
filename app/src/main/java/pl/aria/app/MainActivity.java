@@ -58,6 +58,9 @@ public class MainActivity extends Activity {
     }
     static native boolean nativeLoadModel(String modelPath);
     static native byte[] nativeGenerate(String prompt, int maxTokens);
+    static native long[] nativeInferenceStats();
+    static native void nativeCancelGeneration();
+    static native void nativeResetCancellation();
     private static native void nativeUnloadModel();
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -197,12 +200,14 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 11, 10, "Praca w tle — stan i ograniczenia");
             popup.getMenu().add(0, 13, 12, "Samorozwój — audyt i propozycje zmian");
             popup.getMenu().add(0, 14, 13, "Wersja");
+            popup.getMenu().add(0, 15, 14, "Wydajność silnika — pomiary");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
                 if (busy && item.getItemId()!=14) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 14: showVersionInfo(); return true;
+                    case 15: AriaPerformance.show(this,memory.getReadableDatabase()); return true;
                     case 1: showChronicle(); return true;
                     case 2: {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -377,15 +382,6 @@ public class MainActivity extends Activity {
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
         long eventId = memory.add("user", message, "użytkownik");
-        // Bezpośrednie odpowiedzi na proste zwroty — bez GGUF i wielominutowej analizy.
-        String immediate=AriaConversationBasics.answer(message);
-        if(immediate!=null && !diagnosticMode) {
-            memory.add("aria",immediate,"bezpośrednia odpowiedź konwersacyjna — ARIA 2.0.2");
-            input.setText("");
-            showConversation();
-            neuralBackground.refreshMemory(memory.getReadableDatabase());
-            return;
-        }
         neuralBackground.refreshMemory(memory.getReadableDatabase());
         boolean preferenceSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             PersonalityMemory.learn(memory.getWritableDatabase(), message, eventId);
