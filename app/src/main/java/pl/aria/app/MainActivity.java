@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
     static native long[] nativeInferenceStats();
     static native void nativeCancelGeneration();
     static native void nativeResetCancellation();
+    static native void nativeConfigureThreads(int threads);
     private static native void nativeUnloadModel();
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -201,13 +202,28 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 13, 12, "Samorozwój — audyt i propozycje zmian");
             popup.getMenu().add(0, 14, 13, "Wersja");
             popup.getMenu().add(0, 15, 14, "Wydajność silnika — pomiary");
+            popup.getMenu().add(0, 16, 15, "Wątki CPU — ustawienia silnika");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
-                if (busy && item.getItemId()!=14) return true;
+                if (busy && item.getItemId()!=14 && item.getItemId()!=15) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 14: showVersionInfo(); return true;
                     case 15: AriaPerformance.show(this,memory.getReadableDatabase()); return true;
+                    case 16: {
+                        final int[] threadOptions={2,3,4,5,6};
+                        String[] names={"2 wątki — mniejszy pobór energii", "3 wątki", "4 wątki — ustawienie bazowe", "5 wątków", "6 wątków"};
+                        int saved=getPreferences(0).getInt("cpu_threads",4);
+                        int checked=Math.max(0,Math.min(4,saved-2));
+                        new android.app.AlertDialog.Builder(this)
+                            .setTitle("Wątki CPU dla lokalnego modelu")
+                            .setMessage("Więcej wątków nie zawsze oznacza szybsze działanie. Porównaj wyniki w menu Wydajność silnika.")
+                            .setSingleChoiceItems(names,checked,(dialog,which)->{
+                                getPreferences(0).edit().putInt("cpu_threads",threadOptions[which]).apply();
+                                dialog.dismiss();
+                            }).setNegativeButton("Anuluj",null).show();
+                        return true;
+                    }
                     case 1: showChronicle(); return true;
                     case 2: {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);

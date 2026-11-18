@@ -37,7 +37,7 @@ public final class AriaService extends Service {
         if(WORKING.get()){
             ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,
                 notice(phase, progressText(),true,startWall));
-            handler.postDelayed(this,1000);
+            handler.postDelayed(this,5000);
         }
     }};
     private String progressText(){
@@ -82,9 +82,11 @@ public final class AriaService extends Service {
         }
         cancelRequested=false;
         MainActivity.nativeResetCancellation();
+        int configuredThreads=getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("cpu_threads",4);
+        MainActivity.nativeConfigureThreads(configuredThreads);
         startElapsed=SystemClock.elapsedRealtime();startWall=System.currentTimeMillis();startCpu=android.os.Process.getElapsedCpuTime();taskId=java.util.UUID.randomUUID().toString();setPhase("Przygotowuję odpowiedź");
         startForeground(NOTIFICATION_ID,notice("Myślę nad odpowiedzią","Czas przetwarzania: 00:00",true,startWall));
-        handler.postDelayed(tick,1000);
+        handler.postDelayed(tick,5000);
         try{
             PowerManager pm=(PowerManager)getSystemService(POWER_SERVICE);
             wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"pl.aria.app:Inference");
@@ -101,11 +103,12 @@ public final class AriaService extends Service {
             long[] nativeStats=null;
             try {
                 if((prompt==null||prompt.isEmpty()) && (question==null||!AriaInternet.requested(question)))throw new IllegalArgumentException("Brak pytania");
+                if(cancelRequested)throw new InterruptedException("Zadanie anulowano");
                 if(question!=null && AriaInternet.requested(question)) {
                     setPhase("Pobieram wyniki wyszukiwania");
                     // Search results are presented as attributed excerpts, never invented by the model.
                     String evidence=AriaInternet.fetch(question);
-                    answer="Znalazłam następujące wyniki internetowe. To fragmenty, nie potwierdzone fakty.\n\n"+evidence;
+                    answer=cancelRequested?"Wyszukiwanie anulowano na Twoje polecenie.":"Znalazłam następujące wyniki internetowe. To fragmenty, nie potwierdzone fakty.\n\n"+evidence;
                     source="wyniki internetu na polecenie — ARIA 2.0.2";
                 } else {
                     setPhase("Wczytuję lokalny model");
@@ -131,7 +134,7 @@ public final class AriaService extends Service {
                     }
                 }
             }catch(Throwable e){
-                answer="Nie udało się zakończyć zadania: "+e.getClass().getSimpleName()+": "+e.getMessage();
+                answer=cancelRequested?"Generowanie anulowano na Twoje polecenie.":"Nie udało się zakończyć zadania: "+e.getClass().getSimpleName()+": "+e.getMessage();
                 errorType=e.getClass().getSimpleName(); source="błąd przetwarzania — ARIA Reforma I";
             }
             setPhase("Zapisuję odpowiedź");
@@ -147,7 +150,7 @@ public final class AriaService extends Service {
                 m.put("duration_ms",SystemClock.elapsedRealtime()-startElapsed);
                 m.put("cpu_ms",android.os.Process.getElapsedCpuTime()-startCpu);
                 m.put("load_ms",loadMs);m.put("generate_ms",generateMs);
-                m.put("status",errorType.isEmpty()?(rejected?"rejected":"complete"):"error");
+                m.put("status",cancelRequested?"cancelled":errorType.isEmpty()?(rejected?"rejected":"complete"):"error");
                 m.put("source",source);
                 db.insert("aria_telemetry",null,m);
                 db.execSQL("CREATE TABLE IF NOT EXISTS aria_inference_diagnostics (task_id TEXT PRIMARY KEY, question_chars INTEGER, prompt_chars INTEGER, answer_chars INTEGER, rejected INTEGER, error_type TEXT, wall_ms INTEGER, cpu_ms INTEGER, model_load_ms INTEGER, generation_ms INTEGER, recorded_at INTEGER)");
@@ -164,6 +167,13 @@ public final class AriaService extends Service {
                 details.put("generation_ms",generateMs);
                 details.put("recorded_at",System.currentTimeMillis());
                 db.insertWithOnConflict("aria_inference_diagnostics",null,details,SQLiteDatabase.CONFLICT_REPLACE);
+                db.execSQL("CREATE TABLE IF NOT EXISTS aria_runtime_config (task_id TEXT PRIMARY KEY, threads INTEGER, cancelled INTEGER, saved INTEGER)");
+                ContentValues config=new ContentValues();
+                config.put("task_id",taskId);
+                config.put("threads",configuredThreads);
+                config.put("cancelled",cancelRequested?1:0);
+                config.put("saved",saved?1:0);
+                db.insertWithOnConflict("aria_runtime_config",null,config,SQLiteDatabase.CONFLICT_REPLACE);
                 db.execSQL("CREATE TABLE IF NOT EXISTS aria_native_metrics (task_id TEXT PRIMARY KEY, prompt_tokens INTEGER, output_tokens INTEGER, prefill_ms INTEGER, decode_ms INTEGER, phase INTEGER)");
                 if(nativeStats!=null && nativeStats.length>=5){
                     ContentValues nm=new ContentValues();
