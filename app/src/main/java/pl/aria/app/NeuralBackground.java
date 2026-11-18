@@ -1,64 +1,107 @@
 package pl.aria.app;
 
 import android.content.Context;
-import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.graphics.*;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.os.SystemClock;
+import android.view.MotionEvent;
 import android.view.View;
-import java.util.*;
+import android.widget.Toast;
+import java.util.LinkedHashMap;
 
-/** Widok trwałych danych SQLite, nie mapa neuronów Qwen. */
+/** Żywa sieć: widoczne są wyłącznie moduły potwierdzone telemetrią. */
 public final class NeuralBackground extends View {
-    private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final ArrayList<String> nodes=new ArrayList<>();
-    private final ArrayList<int[]> edges=new ArrayList<>();
-    private boolean thinking=false;
-    private final long started=System.currentTimeMillis();
-    public NeuralBackground(Context c){super(c);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-    public void setThinking(boolean value){thinking=value;invalidate();}
-    public void setGrowth(int ignored){invalidate();}
-    public void refreshMemory(SQLiteDatabase db){
-        ArrayList<String> newNodes=new ArrayList<>();ArrayList<int[]> newEdges=new ArrayList<>();
-        HashMap<String,Integer> positions=new HashMap<>();
-        try(Cursor c=db.rawQuery("SELECT id FROM events WHERE type IN ('user','aria','archive') ORDER BY id DESC LIMIT 65",null)){
-            while(c.moveToNext())add("event:"+c.getLong(0),newNodes,positions);
+    private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private boolean thinking;
+    private String active="",detail="",event="",eventDetail="";
+    private long animationStart=SystemClock.uptimeMillis();
+    private final LinkedHashMap<String,float[]> positions=new LinkedHashMap<>();
+    public NeuralBackground(Context context){super(context);setClickable(true);
+        positions.put("Rozmowa",new float[]{.17f,.23f});
+        positions.put("Pamięć",new float[]{.82f,.24f});
+        positions.put("Biblioteka",new float[]{.87f,.50f});
+        positions.put("Uczenie",new float[]{.76f,.79f});
+        positions.put("Rozumowanie",new float[]{.24f,.79f});
+        positions.put("Silnik",new float[]{.13f,.50f});
+        positions.put("Internet",new float[]{.50f,.09f});
+    }
+    public void setThinking(boolean v){if(thinking!=v){thinking=v;invalidate();}}
+    public void setGrowth(int ignored){}
+    public void refreshMemory(SQLiteDatabase ignored){} // history is not a visualization event
+    public void update(AriaLiveState.Snapshot s){
+        if(!active.equals(s.active)||!event.equals(s.event)||!detail.equals(s.detail)||!eventDetail.equals(s.eventDetail)){
+            active=s.active;detail=s.detail;event=s.event;eventDetail=s.eventDetail;invalidate();
         }
-        try(Cursor c=db.rawQuery("SELECT fact_key,source_event_id FROM facts LIMIT 30",null)){
-            while(c.moveToNext()){
-                String fact="fact:"+c.getString(0),event="event:"+c.getLong(1);
-                int a=add(fact,newNodes,positions);Integer b=positions.get(event);
-                if(b!=null)newEdges.add(new int[]{a,b});
-            }
-        }catch(Exception ignored){}
-        try(Cursor c=db.rawQuery("SELECT id FROM library_docs ORDER BY id DESC LIMIT 20",null)){
-            while(c.moveToNext())add("document:"+c.getLong(0),newNodes,positions);
-        }catch(Exception ignored){}
-        synchronized(nodes){nodes.clear();nodes.addAll(newNodes);edges.clear();edges.addAll(newEdges);}
-        postInvalidate();
     }
-    private static int add(String key,ArrayList<String> list,HashMap<String,Integer> map){
-        Integer existing=map.get(key);if(existing!=null)return existing;
-        int index=list.size();list.add(key);map.put(key,index);return index;
+    private void line(Canvas c,float x1,float y1,float x2,float y2,int alpha,float stroke){
+        paint.setColor(Color.argb(alpha,69,215,244));paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(stroke);c.drawLine(x1,y1,x2,y2,paint);paint.setStyle(Paint.Style.FILL);
     }
-    private static double hash(String id,int salt){double v=Math.sin(id.hashCode()*0.013+salt*75.34)*43758.5453;return v-Math.floor(v);}
     @Override protected void onDraw(Canvas c){super.onDraw(c);
-        ArrayList<String> snapshot;ArrayList<int[]> connections;
-        synchronized(nodes){snapshot=new ArrayList<>(nodes);connections=new ArrayList<>(edges);}
-        int n=snapshot.size();if(n==0)return;
-        float w=getWidth(),h=getHeight(),t=(System.currentTimeMillis()-started)/1000f;
-        float[] x=new float[n],y=new float[n];
-        for(int i=0;i<n;i++){String id=snapshot.get(i);
-            x[i]=(float)((.08+.84*hash(id,1))*w+Math.sin(t*.28+i)*2);
-            y[i]=(float)((.08+.84*hash(id,2))*h+Math.cos(t*.28+i)*2);
+        float w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
+        float cx=w*.5f,cy=h*.47f;
+        float size=Math.min(w*.20f,h*.19f), t=(SystemClock.uptimeMillis()-animationStart)/1000f;
+        // Delikatny, stylizowany obrys mózgu zamiast koła.
+        Path brain=new Path();
+        brain.moveTo(cx,cy-size*.73f);
+        brain.cubicTo(cx-size*.23f,cy-size*1.12f,cx-size*.80f,cy-size*.89f,cx-size*.75f,cy-size*.42f);
+        brain.cubicTo(cx-size*1.16f,cy-size*.30f,cx-size*1.07f,cy+size*.25f,cx-size*.78f,cy+size*.36f);
+        brain.cubicTo(cx-size*.89f,cy+size*.77f,cx-size*.40f,cy+size*.97f,cx,cy+size*.72f);
+        brain.cubicTo(cx+size*.40f,cy+size*.97f,cx+size*.89f,cy+size*.77f,cx+size*.78f,cy+size*.36f);
+        brain.cubicTo(cx+size*1.07f,cy+size*.25f,cx+size*1.16f,cy-size*.30f,cx+size*.75f,cy-size*.42f);
+        brain.cubicTo(cx+size*.80f,cy-size*.89f,cx+size*.23f,cy-size*1.12f,cx,cy-size*.73f);
+        brain.close();
+        paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(Math.max(2f,w*.003f));
+        paint.setColor(Color.rgb(74,205,234));c.drawPath(brain,paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(176,244,255));paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(Math.max(18f,Math.min(28f,w*.065f)));paint.setFakeBoldText(true);
+        c.drawText("A.R.I.A.",cx,cy+paint.getTextSize()*.34f,paint);
+        paint.setFakeBoldText(false);
+        for(String module:positions.keySet()){
+            boolean primary=module.equals(active),secondary=module.equals(event);
+            if(!primary&&!secondary)continue;
+            float[] xy=positions.get(module);float nx=w*xy[0],ny=h*xy[1];
+            float radius=Math.min(w,h)*.095f;
+            // Połączenie wyłącznie z aktualnie aktywnym modułem.
+            line(c,cx,cy,nx,ny,primary?120:75,1.5f);
+            float progress=(t*.55f)%1f;
+            paint.setColor(Color.argb(220,107,233,249));
+            if(primary)c.drawCircle(cx+(nx-cx)*progress,cy+(ny-cy)*progress,3.3f,paint);
+            // Neuron: jądro oraz krótkie wypustki.
+            for(int i=0;i<7;i++){
+                double angle=i*Math.PI*2/7;
+                float ax=nx+(float)Math.cos(angle)*radius*.67f,ay=ny+(float)Math.sin(angle)*radius*.67f;
+                float bx=nx+(float)Math.cos(angle)*radius*1.07f,by=ny+(float)Math.sin(angle)*radius*1.07f;
+                line(c,ax,ay,bx,by,primary?140:85,1.4f);
+            }
+            paint.setColor(Color.argb(215,11,38,56));c.drawCircle(nx,ny,radius*.74f,paint);
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(primary?2.8f:1.7f);
+            paint.setColor(primary?Color.rgb(91,227,249):Color.rgb(54,151,173));
+            c.drawCircle(nx,ny,radius*.74f,paint);paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.rgb(205,247,253));paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(Math.max(10f,Math.min(14f,w*.030f)));
+            c.drawText(module,nx,ny+paint.getTextSize()*.32f,paint);
         }
-        for(int[] edge:connections){p.setColor(Color.argb(thinking?180:110,45,211,247));p.setStrokeWidth(1.7f);c.drawLine(x[edge[0]],y[edge[0]],x[edge[1]],y[edge[1]],p);}
-        for(int i=0;i<n;i++){
-            float pulse=(float)(.5+.5*Math.sin(t*(thinking?2.5:.65)+i));
-            boolean fact=snapshot.get(i).startsWith("fact:"),doc=snapshot.get(i).startsWith("document:");
-            p.setColor(Color.argb(115+(int)(90*pulse),doc?245:fact?130:42,doc?184:fact?240:197,doc?88:241));
-            c.drawCircle(x[i],y[i],(fact?5:doc?6:3.4f)+(thinking?2.5f*pulse:1.2f*pulse),p);
-            p.setColor(Color.rgb(180,243,255));c.drawCircle(x[i],y[i],1.3f,p);
-        }
-        postInvalidateDelayed(thinking?90:180);
+        if(!active.isEmpty()||!event.isEmpty())postInvalidateDelayed(90);
     }
+    @Override public boolean onTouchEvent(MotionEvent e){
+        if(e.getAction()!=MotionEvent.ACTION_UP)return true;
+        float w=getWidth(),h=getHeight();
+        for(String module:positions.keySet()){
+            if(!module.equals(active)&&!module.equals(event))continue;
+            float[] xy=positions.get(module),dx=e.getX()-w*xy[0],dy=e.getY()-h*xy[1];
+            float r=Math.min(w,h)*.13f;
+            if(dx*dx+dy*dy<=r*r){
+                String text=module.equals(active)?detail:eventDetail;
+                Toast.makeText(getContext(),module+": "+(text.isEmpty()?"Aktywność zarejestrowana":text),Toast.LENGTH_SHORT).show();
+                performClick();return true;
+            }
+        }
+        return true;
+    }
+    @Override public boolean performClick(){super.performClick();return true;}
 }

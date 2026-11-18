@@ -31,6 +31,12 @@ public final class AriaService extends Service {
         phaseStarted=now;
         phaseCpuStarted=android.os.Process.getElapsedCpuTime();
         phase=next;
+        String module="Rozumowanie";
+        if(next.contains("model")||next.contains("Generuję"))module="Silnik";
+        else if(next.contains("pamię"))module="Pamięć";
+        else if(next.contains("wyszukiwania"))module="Internet";
+        else if(next.contains("Zapisuję"))module="Pamięć";
+        AriaLiveState.phase(this,module,next);
         AriaTaskJournal.phase(this,taskId,next);
     }
     private PowerManager.WakeLock wakeLock;
@@ -168,6 +174,7 @@ public final class AriaService extends Service {
                 errorType=e.getClass().getSimpleName(); source="błąd przetwarzania — ARIA Reforma I";
             }
             setPhase("Zapisuję odpowiedź");
+            AriaLiveState.activity(this,"Pamięć","Zapis odpowiedzi w SQLite");
             boolean saved=false;
             try(SQLiteDatabase db=openOrCreateDatabase("aria_memory.db",MODE_PRIVATE,null)){
                 ContentValues v=new ContentValues();
@@ -223,6 +230,7 @@ public final class AriaService extends Service {
             try{
                 handler.removeCallbacks(tick);
                 WORKING.set(false);
+                AriaLiveState.idle(this);
                 if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();
                 stopForeground(STOP_FOREGROUND_REMOVE);
                 ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID+1,

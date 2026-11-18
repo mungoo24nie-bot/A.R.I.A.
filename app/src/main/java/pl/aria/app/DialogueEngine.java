@@ -68,17 +68,17 @@ final class DialogueEngine {
         if(!diagnostic) {
             ArrayDeque<String[]> turns=new ArrayDeque<>();
             try(Cursor c=db.rawQuery(
-                    "SELECT id,type,content FROM events WHERE id<? AND type IN ('user','aria') ORDER BY id DESC LIMIT 18",
+                    "SELECT id,type,content FROM events WHERE id<? AND type IN ('user','aria') ORDER BY id DESC LIMIT 12",
                     new String[]{String.valueOf(currentEvent)})) {
                 while(c.moveToNext()) {
                     String type=c.getString(1), content=c.getString(2);
                     if("aria".equals(type) && badOldAnswer(content)) continue;
-                    if(content.length()>280) content=content.substring(0,280);
+                    if(content.length()>180) content=content.substring(0,180);
                     turns.addFirst(new String[]{type,content});
                 }
             }
-            // Zachowaj ostatnie 4 wypowiedzi, nie zaś całą kronikę.
-            while(turns.size()>2) turns.removeFirst();
+            // Zachowaj do 10 wypowiedzi, w kolejności chronologicznej.
+            while(turns.size()>10) turns.removeFirst();
             for(String[] t:turns) {
                 out.append("<|im_start|>").append("aria".equals(t[0])?"assistant":"user")
                    .append("\n").append(t[1]).append("<|im_end|>\n");

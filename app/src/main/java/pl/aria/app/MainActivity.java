@@ -81,7 +81,10 @@ public class MainActivity extends Activity {
         if (memory != null && messages != null) {
             boolean running = AriaService.isWorking();
             if (thinkingStatus != null) thinkingStatus.setText(running ? "● Analizuję pytanie…" : "● Gotowa do rozmowy");
-            if (neuralBackground != null) neuralBackground.setThinking(running);
+            if (neuralBackground != null) {
+                neuralBackground.setThinking(running);
+                neuralBackground.update(AriaLiveState.read(MainActivity.this,running));
+            }
             if (busy != running) setBusy(running, running ? "ARIA pracuje w tle" : "Gotowa");
             int count = memory.count();
             if (isChatVisible && count != displayedCount) { showConversation(); neuralBackground.refreshMemory(memory.getReadableDatabase()); }
@@ -470,6 +473,8 @@ public class MainActivity extends Activity {
             return;
         }
         final boolean diagnosticForTurn = diagnosticMode;
+        if (!diagnosticForTurn && !AriaInternet.requested(message))
+            AriaLiveState.activity(this,"Pamięć","Odczyt historii rozmowy i kontekstu z SQLite");
         String prompt = AriaInternet.requested(message) ? "" :
             DialogueEngine.make(memory.getReadableDatabase(), message,
             memoryQuestion, diagnosticForTurn, false, eventId);
