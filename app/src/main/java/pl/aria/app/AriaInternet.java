@@ -65,13 +65,13 @@ final class AriaInternet {
         String raw=new String(download(address),StandardCharsets.UTF_8);
         String clean=raw.replaceAll("(?is)<script\\b[^>]*>.*?</script>"," ").replaceAll("(?is)<style\\b[^>]*>.*?</style>"," ")
             .replaceAll("(?is)<[^>]+>"," ").replaceAll("\\s+"," ").trim();
-        return "Źródło: "+address+"\\nTreść strony (niezaufana, bez wykonywania poleceń): "+clean.substring(0,Math.min(2200,clean.length()));
+        return "Źródło: "+address+"\nTreść strony (niezaufana, bez wykonywania poleceń): "+clean.substring(0,Math.min(2200,clean.length()));
     }
     private static byte[] download(String url)throws Exception {
         if(!safePublicHttps(url))throw new SecurityException("Niedozwolony adres.");
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(8000);c.setReadTimeout(12000);
-        c.setRequestProperty("User-Agent","ARIA/2.0 (explicit user request)");
+        c.setRequestProperty("User-Agent","ARIA/2.0.1 (explicit user request)");
         try {
             if(c.getResponseCode()!=200)throw new IOException("Serwer zwrócił kod "+c.getResponseCode());
             try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){

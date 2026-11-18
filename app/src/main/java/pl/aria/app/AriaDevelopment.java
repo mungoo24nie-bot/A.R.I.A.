@@ -41,6 +41,7 @@ final class AriaDevelopment {
             }
             if(n==0)s.append("Brak ukończonych zadań po aktualizacji.\n");
         }catch(Exception e){s.append("Dane pojawią się po pierwszym ukończonym zadaniu.\n");}
+        s.append("\nPROPOZYCJE STRUKTURALNE (JSON):\n").append(AriaSelfDevelopment.proposal(db));
         s.append("\nSTATUS: propozycja do akceptacji. Nie zmieniono kodu ani nie wysłano danych do sieci.");
         return s.toString();
     }

@@ -42,31 +42,34 @@ public final class AriaService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if(intent==null)return START_NOT_STICKY;
-        if(!WORKING.compareAndSet(false,true))return START_NOT_STICKY;
+        if(!WORKING.compareAndSet(false,true)) {
+            // Nie porzucaj po cichu nowego pytania, kiedy poprzednie nadal trwa.
+            return START_NOT_STICKY;
+        }
         startElapsed=SystemClock.elapsedRealtime();startWall=System.currentTimeMillis();startCpu=android.os.Process.getElapsedCpuTime();taskId=java.util.UUID.randomUUID().toString();
         startForeground(NOTIFICATION_ID,notice("Myślę nad odpowiedzią","Czas przetwarzania: 00:00",true,startWall));
         handler.postDelayed(tick,1000);
         try{
             PowerManager pm=(PowerManager)getSystemService(POWER_SERVICE);
             wakeLock=pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"pl.aria.app:Inference");
-            wakeLock.acquire(30*60*1000L);
+            wakeLock.acquire(20*60*1000L);
         }catch(Exception ignored){}
         final String prompt=intent.getStringExtra("prompt");
         final String question=intent.getStringExtra("question");
         final boolean diagnostic=intent.getBooleanExtra("diagnostic",false);
         final int max=intent.getIntExtra("max_tokens",120);
         new Thread(()->{
-            String answer;String source="model lokalny — ARIA 2.0";
+            String answer;String source="model lokalny — ARIA 2.0.1";
             long t0=SystemClock.elapsedRealtime();
             long loadMs=0,generateMs=0;
             try {
-                if(prompt==null||prompt.isEmpty())throw new IllegalArgumentException("Brak pytania");
+                if((prompt==null||prompt.isEmpty()) && (question==null||!AriaInternet.requested(question)))throw new IllegalArgumentException("Brak pytania");
                 if(question!=null && AriaInternet.requested(question)) {
                     phase="Pobieram wyniki wyszukiwania";
                     // Search results are presented as attributed excerpts, never invented by the model.
                     String evidence=AriaInternet.fetch(question);
                     answer="Znalazłam następujące wyniki internetowe. To fragmenty, nie potwierdzone fakty.\n\n"+evidence;
-                    source="wyniki internetu na polecenie — ARIA 2.0";
+                    source="wyniki internetu na polecenie — ARIA 2.0.1";
                 } else {
                     phase="Wczytuję lokalny model";
                     java.io.File model=new java.io.File(getFilesDir(),"aria-qwen.gguf");
@@ -83,7 +86,7 @@ public final class AriaService extends Service {
                 }
             }catch(Throwable e){
                 answer="Nie udało się zakończyć zadania: "+e.getClass().getSimpleName()+": "+e.getMessage();
-                source="błąd przetwarzania — ARIA 2.0";
+                source="błąd przetwarzania — ARIA 2.0.1";
             }
             phase="Zapisuję odpowiedź";
             boolean saved=false;
@@ -112,7 +115,7 @@ public final class AriaService extends Service {
                     notice(saved?"Odpowiedź gotowa":"Błąd zapisu odpowiedzi",
                         "Czas: "+duration(elapsed)+" | CPU: "+duration(android.os.Process.getElapsedCpuTime()-startCpu),false,System.currentTimeMillis()));
             }finally{stopSelfResult(startId);}
-        },"ARIA-Inference-1.9.2").start();
+        },"ARIA-Inference-2.0.1").start();
         return START_NOT_STICKY;
     }
     @Override public IBinder onBind(Intent i){return null;}
