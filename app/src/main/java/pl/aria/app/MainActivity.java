@@ -80,7 +80,7 @@ public class MainActivity extends Activity {
             if (neuralBackground != null) neuralBackground.setThinking(running);
             if (busy != running) setBusy(running, running ? "ARIA pracuje w tle" : "Gotowa");
             int count = memory.count();
-            if (isChatVisible && count != displayedCount) showConversation();
+            if (isChatVisible && count != displayedCount) { showConversation(); neuralBackground.refreshMemory(memory.getReadableDatabase()); }
         }
         ui.postDelayed(this, 800);
     }};
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.8");
+        title.setText("A.R.I.A. 1.9.1");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(128, 232, 255));
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -204,7 +204,7 @@ public class MainActivity extends Activity {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                         intent.addCategory(Intent.CATEGORY_OPENABLE);
                         intent.setType("application/json");
-                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.8.json");
+                        intent.putExtra(Intent.EXTRA_TITLE, "ARIA-pamiec-1.9.1.json");
                         startActivityForResult(intent, EXPORT_REQUEST);
                         return true;
                     }
@@ -286,7 +286,7 @@ public class MainActivity extends Activity {
         status.setText(modelFile().exists() ? "Plik modelu jest na telefonie. Gotowy do wczytania." : "Brak modelu. Pobierz Qwen3-0.6B-Q4_K_M.gguf i wybierz plik.");
         FrameLayout conversationPanel = new FrameLayout(this);
         neuralBackground = new NeuralBackground(this);
-        neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+        neuralBackground.refreshMemory(memory.getReadableDatabase());
         conversationPanel.addView(neuralBackground, new FrameLayout.LayoutParams(-1, -1));
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -353,29 +353,36 @@ public class MainActivity extends Activity {
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
         long eventId = memory.add("user", message, "użytkownik");
-        boolean preferenceSaved = !diagnosticMode &&
+        neuralBackground.refreshMemory(memory.getReadableDatabase());
+        boolean preferenceSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             PersonalityMemory.learn(memory.getWritableDatabase(), message, eventId);
-        boolean correctionSaved = !diagnosticMode &&
+        boolean correctionSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             LearningMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        String factAck = diagnosticMode ? null : rememberUserFact(message, eventId);
+        String factAck = (diagnosticMode || AriaInternet.requested(message)) ? null : rememberUserFact(message, eventId);
         if(preferenceSaved) factAck = "Zapisałam Twoją preferencję sposobu rozmowy. Możesz ją zmienić w dowolnej chwili.";
-        boolean relationalSaved = !diagnosticMode &&
+        boolean relationalSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             RelationalMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        boolean topicSaved = !diagnosticMode &&
+        boolean topicSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             TopicMemory.ingest(memory.getWritableDatabase(), message, eventId);
-        boolean contextSaved = !diagnosticMode &&
+        boolean contextSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             ConversationMemory.ingest(memory.getWritableDatabase(), message, eventId);
         if (factAck == null && (relationalSaved || topicSaved || contextSaved))
             factAck = "Zapisałam tę informację w kronice i powiązałam ją z tematem rozmowy.";
         input.setText("");
-        if (factAck != null && !correctionSaved && !diagnosticMode) {
+        if (factAck != null && !correctionSaved && !diagnosticMode && !AriaInternet.requested(message)) {
             memory.add("aria", factAck, "potwierdzenie faktu z wypowiedzi użytkownika — SQLite");
             showConversation();
             return;
         }
         showConversation();
+        String memoryReply = !diagnosticMode && !AriaInternet.requested(message)
+            ? AriaMemoryAnswers.answer(memory.getReadableDatabase(),message,eventId) : null;
+        if(memoryReply != null) {
+            memory.add("aria",memoryReply,"odczyt źródłowy SQLite — ARIA 1.9.1");
+            showConversation();return;
+        }
         String exact = AriaMath.answer(message);
-        if (exact != null && !diagnosticMode) {
+        if (exact != null && !diagnosticMode && !AriaInternet.requested(message)) {
             memory.add("aria", exact, "weryfikowane obliczenie kalendarzowe — ARIA 1.8");
             showConversation();
             return;
@@ -383,7 +390,7 @@ public class MainActivity extends Activity {
         boolean memoryQuestion = !diagnosticMode && MemoryContext.asking(message);
         // Wszystkie pytania wielotematyczne przechodzą przez jeden silnik dialogu.
         // Stare specjalizowane odpowiedzi pozostają w kodzie, ale nie przechwytują pytań.
-        if (!modelFile().exists()) {
+        if (!modelFile().exists() && !AriaInternet.requested(message)) {
             String answer = respondWithoutModel(message);
             memory.add("aria", answer, "odpowiedź regułowa — model nie został jeszcze wybrany");
             showConversation();
@@ -397,6 +404,7 @@ public class MainActivity extends Activity {
         task.putExtra("prompt", prompt);
         task.putExtra("question", message);
         task.putExtra("diagnostic", diagnosticForTurn);
+        task.putExtra("event_id",eventId);
         int mode = getPreferences(0).getInt("speed",1);
         task.putExtra("max_tokens", mode==0?72:mode==2?200:MAX_OUTPUT_TOKENS);
         try {
@@ -739,7 +747,7 @@ public class MainActivity extends Activity {
     }
 
     private void showConversation() {
-        if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+        if (neuralBackground != null) neuralBackground.refreshMemory(memory.getReadableDatabase());
         messages.removeAllViews();
         displayedCount = memory.count();
         isChatVisible = true;
@@ -754,7 +762,7 @@ public class MainActivity extends Activity {
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
     }
     private void showChronicle() {
-        if (neuralBackground != null) neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+        if (neuralBackground != null) neuralBackground.refreshMemory(memory.getReadableDatabase());
         messages.removeAllViews();
         isChatVisible = false;
         addMessage("KRONIKA EKSPERYMENTU — kolejność zapisu");
@@ -805,7 +813,7 @@ public class MainActivity extends Activity {
                     .setPositiveButton("Usuń",(d,w)->{
                         KnowledgeLibrary.remove(memory.getWritableDatabase(),ids.get(which));
                         Toast.makeText(this,"Usunięto dokument",Toast.LENGTH_SHORT).show();
-                        neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+                        neuralBackground.refreshMemory(memory.getReadableDatabase());
                     }).show();
             }).setNegativeButton("Anuluj",null).show();
     }
@@ -820,7 +828,7 @@ public class MainActivity extends Activity {
                     name.substring(name.lastIndexOf('.')+1),content);
                 ui.post(()->{
                     setBusy(false,"Dodano "+parts+" fragmentów wiedzy");
-                    neuralBackground.setGrowth(memory.count()+KnowledgeLibrary.count(memory.getReadableDatabase()));
+                    neuralBackground.refreshMemory(memory.getReadableDatabase());
                     new android.app.AlertDialog.Builder(this)
                         .setTitle("ARIA przeczytała dokument")
                         .setMessage(name+"\nZapisano "+parts+" fragmentów.\n\nMożesz teraz zadawać pytania o jego treść. Wiedza jest przechowywana lokalnie.")
