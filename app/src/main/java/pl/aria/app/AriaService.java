@@ -59,7 +59,7 @@ public final class AriaService extends Service {
         final boolean diagnostic=intent.getBooleanExtra("diagnostic",false);
         final int max=intent.getIntExtra("max_tokens",120);
         new Thread(()->{
-            String answer;String source="model lokalny — ARIA 2.0.1";
+            String answer;String source="model lokalny — ARIA 2.0.2";
             long t0=SystemClock.elapsedRealtime();
             long loadMs=0,generateMs=0;
             try {
@@ -69,7 +69,7 @@ public final class AriaService extends Service {
                     // Search results are presented as attributed excerpts, never invented by the model.
                     String evidence=AriaInternet.fetch(question);
                     answer="Znalazłam następujące wyniki internetowe. To fragmenty, nie potwierdzone fakty.\n\n"+evidence;
-                    source="wyniki internetu na polecenie — ARIA 2.0.1";
+                    source="wyniki internetu na polecenie — ARIA 2.0.2";
                 } else {
                     phase="Wczytuję lokalny model";
                     java.io.File model=new java.io.File(getFilesDir(),"aria-qwen.gguf");
@@ -81,12 +81,14 @@ public final class AriaService extends Service {
                     generateMs=SystemClock.elapsedRealtime()-generationStart;
                     if(bytes==null)throw new IllegalStateException("Silnik modelu nie zwrócił odpowiedzi");
                     answer=DialogueEngine.clean(new String(bytes,StandardCharsets.UTF_8));
-                    if(DialogueEngine.invalid(answer,question==null?"":question))
-                        answer="Nie udało mi się przygotować wiarygodnej odpowiedzi. Nie będę zgadywać.";
+                    if(DialogueEngine.invalid(answer,question==null?"":question)) {
+                        source="odrzucona odpowiedź modelu — ARIA 2.0.2";
+                        answer="Nie potrafię teraz odpowiedzieć na to pytanie. Odpowiedź modelu została odrzucona przez kontrolę jakości.";
+                    }
                 }
             }catch(Throwable e){
                 answer="Nie udało się zakończyć zadania: "+e.getClass().getSimpleName()+": "+e.getMessage();
-                source="błąd przetwarzania — ARIA 2.0.1";
+                source="błąd przetwarzania — ARIA 2.0.2";
             }
             phase="Zapisuję odpowiedź";
             boolean saved=false;

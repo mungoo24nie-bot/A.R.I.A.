@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         root.setPadding(20, 16, 20, 18);
         root.setBackgroundColor(Color.rgb(15, 18, 28));
         TextView title = new TextView(this);
-        title.setText("A.R.I.A. 1.9.1");
+        title.setText("A.R.I.A.");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(128, 232, 255));
         title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -196,11 +196,13 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 10, 9, "Dodaj książkę lub artykuł");
             popup.getMenu().add(0, 11, 10, "Praca w tle — stan i ograniczenia");
             popup.getMenu().add(0, 13, 12, "Samorozwój — audyt i propozycje zmian");
+            popup.getMenu().add(0, 14, 13, "Wersja");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
-                if (busy) return true;
+                if (busy && item.getItemId()!=14) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
+                    case 14: showVersionInfo(); return true;
                     case 1: showChronicle(); return true;
                     case 2: {
                         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -350,6 +352,23 @@ public class MainActivity extends Activity {
         status.setText(description);
     }
 
+    /** Pokazuje rzeczywistą wersję z APK, nie numer wpisany ręcznie w UI. */
+    private void showVersionInfo() {
+        String version="nieznana";
+        String updated="nieznana";
+        try {
+            android.content.pm.PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
+            version=info.versionName==null?"nieznana":info.versionName;
+            updated=new SimpleDateFormat("dd.MM.yyyy, HH:mm",Locale.forLanguageTag("pl-PL"))
+                .format(new Date(info.lastUpdateTime));
+        } catch(Exception ignored) {}
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("A.R.I.A. — Wersja")
+            .setMessage("Wersja: "+version+"\\nData aktualizacji: "+updated+
+                "\\n\\nData aktualizacji oznacza czas instalacji bieżącego APK na telefonie.")
+            .setPositiveButton("OK",null).show();
+    }
+
     private void sendMessage() {
         if (busy || AriaService.isWorking()) {
             Toast.makeText(this,"ARIA nadal przetwarza poprzednie pytanie",Toast.LENGTH_LONG).show();
@@ -358,6 +377,15 @@ public class MainActivity extends Activity {
         String message = input.getText().toString().trim();
         if (message.isEmpty()) return;
         long eventId = memory.add("user", message, "użytkownik");
+        // Bezpośrednie odpowiedzi na proste zwroty — bez GGUF i wielominutowej analizy.
+        String immediate=AriaConversationBasics.answer(message);
+        if(immediate!=null && !diagnosticMode) {
+            memory.add("aria",immediate,"bezpośrednia odpowiedź konwersacyjna — ARIA 2.0.2");
+            input.setText("");
+            showConversation();
+            neuralBackground.refreshMemory(memory.getReadableDatabase());
+            return;
+        }
         neuralBackground.refreshMemory(memory.getReadableDatabase());
         boolean preferenceSaved = !diagnosticMode && !AriaInternet.requested(message) &&
             PersonalityMemory.learn(memory.getWritableDatabase(), message, eventId);
