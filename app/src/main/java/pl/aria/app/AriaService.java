@@ -118,6 +118,7 @@ public final class AriaService extends Service {
             long t0=SystemClock.elapsedRealtime();
             long loadMs=0,generateMs=0; boolean rejected=false; String errorType="";
             long[] nativeStats=null;
+            String qualityReason="not_applicable";int rawAnswerChars=0,cleanAnswerChars=0;
             try {
                 if((prompt==null||prompt.isEmpty()) && (question==null||!AriaInternet.requested(question)))throw new IllegalArgumentException("Brak pytania");
                 if(cancelRequested)throw new InterruptedException("Zadanie anulowano");
@@ -143,8 +144,12 @@ public final class AriaService extends Service {
                         source="anulowane przez użytkownika";
                     } else if(bytes==null)throw new IllegalStateException("Silnik modelu nie zwrócił odpowiedzi");
                     else {
-                    answer=DialogueEngine.clean(new String(bytes,StandardCharsets.UTF_8));
-                    if(DialogueEngine.invalid(answer,question==null?"":question)) {
+                    String rawAnswer=new String(bytes,StandardCharsets.UTF_8);
+                    rawAnswerChars=rawAnswer.length();
+                    answer=DialogueEngine.clean(rawAnswer);
+                    cleanAnswerChars=answer.length();
+                    qualityReason=AnswerQuality.reason(answer,question);
+                    if(!qualityReason.isEmpty()) {
                         rejected=true; source="odrzucona odpowiedź modelu — ARIA Reforma I";
                         answer="Nie potrafię teraz odpowiedzieć na to pytanie. Odpowiedź modelu została odrzucona przez kontrolę jakości.";
                     }
@@ -184,6 +189,7 @@ public final class AriaService extends Service {
                 details.put("generation_ms",generateMs);
                 details.put("recorded_at",System.currentTimeMillis());
                 db.insertWithOnConflict("aria_inference_diagnostics",null,details,SQLiteDatabase.CONFLICT_REPLACE);
+                AnswerQuality.record(db,taskId,qualityReason,rawAnswerChars,cleanAnswerChars);
                 db.execSQL("CREATE TABLE IF NOT EXISTS aria_runtime_config (task_id TEXT PRIMARY KEY, threads INTEGER, cancelled INTEGER, saved INTEGER)");
                 ContentValues config=new ContentValues();
                 config.put("task_id",taskId);
