@@ -84,7 +84,17 @@ public final class AriaService extends Service {
         }
         cancelRequested=false;
         MainActivity.nativeResetCancellation();
-        int configuredThreads=getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("cpu_threads",4);
+        int requestedThreads=getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("cpu_threads",4);
+        int configuredThreads=Math.min(requestedThreads,Math.max(1,Runtime.getRuntime().availableProcessors()));
+        // Ogranicz obciążenie na gorącym urządzeniu, bez zmiany preferencji użytkownika.
+        if(Build.VERSION.SDK_INT>=29){
+            PowerManager thermal=(PowerManager)getSystemService(POWER_SERVICE);
+            if(thermal!=null){
+                int level=thermal.getCurrentThermalStatus();
+                if(level>=PowerManager.THERMAL_STATUS_SEVERE)configuredThreads=Math.min(configuredThreads,2);
+                else if(level>=PowerManager.THERMAL_STATUS_MODERATE)configuredThreads=Math.min(configuredThreads,3);
+            }
+        }
         MainActivity.nativeConfigureThreads(configuredThreads);
         startElapsed=SystemClock.elapsedRealtime();startWall=System.currentTimeMillis();startCpu=android.os.Process.getElapsedCpuTime();taskId=java.util.UUID.randomUUID().toString();setPhase("Przygotowuję odpowiedź");
         startForeground(NOTIFICATION_ID,notice("Myślę nad odpowiedzią","Czas przetwarzania: 00:00",true,startWall));
@@ -99,6 +109,9 @@ public final class AriaService extends Service {
         final String question=intent.getStringExtra("question");
         final boolean diagnostic=intent.getBooleanExtra("diagnostic",false);
         final int max=intent.getIntExtra("max_tokens",120);
+        AriaTaskJournal.saveRecovery(this,taskId,prompt,question,max,diagnostic);
+        final String recoveryId=intent.getStringExtra("recovery_task_id");
+        if(recoveryId!=null)AriaTaskJournal.clearRecovery(this,recoveryId);
         new Thread(()->{
             String answer;String source="model lokalny — ARIA 2.0.2";
             long t0=SystemClock.elapsedRealtime();
@@ -189,6 +202,8 @@ public final class AriaService extends Service {
             AriaTaskJournal.finish(this,taskId,
                 cancelRequested?"cancelled":!saved?"save_error":!errorType.isEmpty()?"error":
                     rejected?"rejected":"completed",errorType);
+            // Nie przechowuj ponownie promptu po zakończeniu lub błędzie.
+            AriaTaskJournal.clearRecovery(this,taskId);
             long elapsed=SystemClock.elapsedRealtime()-startElapsed;
             try{
                 handler.removeCallbacks(tick);
@@ -201,6 +216,15 @@ public final class AriaService extends Service {
             }finally{stopSelf();}
         },"ARIA-Inference-Reforma-I").start();
         return START_NOT_STICKY;
+    }
+    // Android 15: usługa dataSync ma ograniczony budżet czasu.
+    // Nie próbujemy obchodzić limitu systemu.
+    @Override public void onTimeout(int startId,int fgsType){
+        cancelRequested=true;
+        MainActivity.nativeCancelGeneration();
+        handler.removeCallbacks(tick);
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        stopSelf();
     }
     @Override public IBinder onBind(Intent i){return null;}
     @Override public void onDestroy(){handler.removeCallbacks(tick);if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();super.onDestroy();}

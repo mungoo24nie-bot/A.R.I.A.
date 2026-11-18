@@ -203,14 +203,35 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 14, 13, "Wersja");
             popup.getMenu().add(0, 15, 14, "Wydajność silnika — pomiary");
             popup.getMenu().add(0, 17, 16, "Dziennik zadań i przerwań");
+            popup.getMenu().add(0, 18, 17, "Wznów przerwane zadanie");
             popup.getMenu().add(0, 16, 15, "Wątki CPU — ustawienia silnika");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
-                if (busy && item.getItemId()!=14 && item.getItemId()!=15 && item.getItemId()!=17) return true;
+                if (busy && item.getItemId()!=14 && item.getItemId()!=15 && item.getItemId()!=17 && item.getItemId()!=18) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 14: showVersionInfo(); return true;
                     case 15: AriaPerformance.show(this,memory.getReadableDatabase()); return true;
+                    case 18: {
+                        if(AriaService.isWorking()){
+                            Toast.makeText(this,"ARIA już pracuje",Toast.LENGTH_LONG).show();
+                            return true;
+                        }
+                        Intent pending=AriaTaskJournal.recoverable(this);
+                        if(pending==null){
+                            Toast.makeText(this,"Brak zadania możliwego do wznowienia",Toast.LENGTH_LONG).show();
+                            return true;
+                        }
+                        new android.app.AlertDialog.Builder(this)
+                            .setTitle("Ponów przerwane zadanie?")
+                            .setMessage("ARIA rozpocznie generowanie od początku. Nie odzyska częściowo wygenerowanych tokenów. Zapisany prompt znajduje się w prywatnej bazie aplikacji.")
+                            .setPositiveButton("Wznów",(dialog,which)->{
+                                if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(pending);
+                                else startService(pending);
+                            })
+                            .setNegativeButton("Anuluj",null).show();
+                        return true;
+                    }
                     case 17: new android.app.AlertDialog.Builder(this)
                         .setTitle("ARIA — dziennik zadań")
                         .setMessage(AriaTaskJournal.report(this))
