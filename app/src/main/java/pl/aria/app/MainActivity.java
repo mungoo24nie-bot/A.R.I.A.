@@ -202,14 +202,19 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 13, 12, "Samorozwój — audyt i propozycje zmian");
             popup.getMenu().add(0, 14, 13, "Wersja");
             popup.getMenu().add(0, 15, 14, "Wydajność silnika — pomiary");
+            popup.getMenu().add(0, 17, 16, "Dziennik zadań i przerwań");
             popup.getMenu().add(0, 16, 15, "Wątki CPU — ustawienia silnika");
             popup.getMenu().add(0, 12, 11, "Tryb odpowiedzi: " + (getPreferences(0).getInt("speed", 1)==0?"szybki":getPreferences(0).getInt("speed",1)==1?"zrównoważony":"dokładny"));
             popup.setOnMenuItemClickListener(item -> {
-                if (busy && item.getItemId()!=14 && item.getItemId()!=15) return true;
+                if (busy && item.getItemId()!=14 && item.getItemId()!=15 && item.getItemId()!=17) return true;
                 switch (item.getItemId()) {
                     case 13: AriaDevelopment.show(this,memory.getReadableDatabase()); return true;
                     case 14: showVersionInfo(); return true;
                     case 15: AriaPerformance.show(this,memory.getReadableDatabase()); return true;
+                    case 17: new android.app.AlertDialog.Builder(this)
+                        .setTitle("ARIA — dziennik zadań")
+                        .setMessage(AriaTaskJournal.report(this))
+                        .setPositiveButton("Zamknij",null).show(); return true;
                     case 16: {
                         final int[] threadOptions={2,3,4,5,6};
                         String[] names={"2 wątki — mniejszy pobór energii", "3 wątki", "4 wątki — ustawienie bazowe", "5 wątków", "6 wątków"};

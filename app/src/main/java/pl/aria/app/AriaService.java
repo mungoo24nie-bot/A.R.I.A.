@@ -31,6 +31,7 @@ public final class AriaService extends Service {
         phaseStarted=now;
         phaseCpuStarted=android.os.Process.getElapsedCpuTime();
         phase=next;
+        AriaTaskJournal.phase(this,taskId,next);
     }
     private PowerManager.WakeLock wakeLock;
     private final Runnable tick=new Runnable(){@Override public void run(){
@@ -51,6 +52,7 @@ public final class AriaService extends Service {
         return detail;
     }
     @Override public void onCreate(){super.onCreate();
+        AriaTaskJournal.interrupted(this);
         NotificationChannel ch=new NotificationChannel(CHANNEL,"ARIA — przetwarzanie",NotificationManager.IMPORTANCE_LOW);
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(ch);
     }
@@ -86,6 +88,7 @@ public final class AriaService extends Service {
         MainActivity.nativeConfigureThreads(configuredThreads);
         startElapsed=SystemClock.elapsedRealtime();startWall=System.currentTimeMillis();startCpu=android.os.Process.getElapsedCpuTime();taskId=java.util.UUID.randomUUID().toString();setPhase("Przygotowuję odpowiedź");
         startForeground(NOTIFICATION_ID,notice("Myślę nad odpowiedzią","Czas przetwarzania: 00:00",true,startWall));
+        AriaTaskJournal.start(this,taskId,startWall);
         handler.postDelayed(tick,5000);
         try{
             PowerManager pm=(PowerManager)getSystemService(POWER_SERVICE);
@@ -183,6 +186,9 @@ public final class AriaService extends Service {
                     db.insertWithOnConflict("aria_native_metrics",null,nm,SQLiteDatabase.CONFLICT_REPLACE);
                 }
             }catch(Exception ignored){}
+            AriaTaskJournal.finish(this,taskId,
+                cancelRequested?"cancelled":!saved?"save_error":!errorType.isEmpty()?"error":
+                    rejected?"rejected":"completed",errorType);
             long elapsed=SystemClock.elapsedRealtime()-startElapsed;
             try{
                 handler.removeCallbacks(tick);
@@ -192,7 +198,7 @@ public final class AriaService extends Service {
                 ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID+1,
                     notice(!saved?"Błąd zapisu odpowiedzi":cancelRequested?"Anulowano":rejected?"Odpowiedź odrzucona":errorType.isEmpty()?"Odpowiedź gotowa":"Błąd przetwarzania",
                         "Czas: "+duration(elapsed)+" | CPU: "+duration(android.os.Process.getElapsedCpuTime()-startCpu),false,System.currentTimeMillis()));
-            }finally{stopSelfResult(startId);}
+            }finally{stopSelf();}
         },"ARIA-Inference-Reforma-I").start();
         return START_NOT_STICKY;
     }
