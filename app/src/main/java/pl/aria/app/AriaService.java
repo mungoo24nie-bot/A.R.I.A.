@@ -31,12 +31,6 @@ public final class AriaService extends Service {
         phaseStarted=now;
         phaseCpuStarted=android.os.Process.getElapsedCpuTime();
         phase=next;
-        String module="Rozumowanie";
-        if(next.contains("model")||next.contains("Generuję"))module="Silnik";
-        else if(next.contains("pamię"))module="Pamięć";
-        else if(next.contains("wyszukiwania"))module="Internet";
-        else if(next.contains("Zapisuję"))module="Pamięć";
-        AriaLiveState.phase(this,module,next);
         AriaTaskJournal.phase(this,taskId,next);
     }
     private PowerManager.WakeLock wakeLock;
@@ -156,7 +150,7 @@ public final class AriaService extends Service {
                     if(cancelRequested){
                         answer="Generowanie anulowano na Twoje polecenie.";
                         source="anulowane przez użytkownika";
-                    } else if(bytes==null)throw new IllegalStateException("Silnik modelu nie zwrócił odpowiedzi");
+                    } else if(bytes==null || bytes.length==0)throw new IllegalStateException("Brak tokenów odpowiedzi z modelu; możliwy zbyt długi kontekst lub błąd generowania");
                     else {
                     String rawAnswer=new String(bytes,StandardCharsets.UTF_8);
                     rawAnswerChars=rawAnswer.length();
@@ -170,11 +164,10 @@ public final class AriaService extends Service {
                     }
                 }
             }catch(Throwable e){
-                answer=cancelRequested?"Generowanie anulowano na Twoje polecenie.":"Nie udało się zakończyć zadania: "+e.getClass().getSimpleName()+": "+e.getMessage();
+                answer=cancelRequested?"Generowanie anulowano na Twoje polecenie.":"Nie udało mi się wygenerować odpowiedzi. Spróbuj ponownie; szczegóły zapisałam w diagnostyce.";
                 errorType=e.getClass().getSimpleName(); source="błąd przetwarzania — ARIA Reforma I";
             }
             setPhase("Zapisuję odpowiedź");
-            AriaLiveState.activity(this,"Pamięć","Zapis odpowiedzi w SQLite");
             boolean saved=false;
             try(SQLiteDatabase db=openOrCreateDatabase("aria_memory.db",MODE_PRIVATE,null)){
                 ContentValues v=new ContentValues();
@@ -230,7 +223,6 @@ public final class AriaService extends Service {
             try{
                 handler.removeCallbacks(tick);
                 WORKING.set(false);
-                AriaLiveState.idle(this);
                 if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();
                 stopForeground(STOP_FOREGROUND_REMOVE);
                 ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID+1,

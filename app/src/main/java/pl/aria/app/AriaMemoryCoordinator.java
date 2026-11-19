@@ -62,7 +62,7 @@ final class AriaMemoryCoordinator {
     }
     /** Dokładne pytania o poprzednie obliczenia rozwiązuje z historii bez kosztu generacji LLM. */
     static String direct(SQLiteDatabase db,String question,long before){
-        if(!mathRecall(question))return null;
+        if(!mathRecall(question) || temporalQuestion(question))return null;
         List<Event> history=events(db,before,500);
         ArrayList<String> found=new ArrayList<>();Set<String> unique=new HashSet<>();
         for(int i=0;i<history.size()-1;i++){
@@ -87,6 +87,67 @@ final class AriaMemoryCoordinator {
         }
         return out.append('.').toString();
     }
+    private static boolean temporalQuestion(String question){
+        String q=norm(question);
+        return (q.contains("przed ")||q.contains("po ")||q.contains("zanim ")||q.contains("potem")||q.contains("wczesniej niz"))
+            && (q.contains("matemat")||q.contains("dzialan")||q.contains("obliczen")||q.contains("rozmow"));
+    }
+    private static boolean profileQuestion(String question){
+        String q=norm(question);
+        return q.contains("co o mnie pamiet")||q.contains("co o mnie wiesz")||q.contains("co pamietasz o mnie")
+            ||q.contains("jakie informacje o mnie")||q.contains("co wiesz na moj temat");
+    }
+    /** Chronologia jest ustalana z ID zdarzeń, a nie z podobieństwa słów. */
+    private static String chronological(SQLiteDatabase db,String question,long before){
+        if(!temporalQuestion(question))return null;
+        String q=norm(question);
+        boolean beforeMath=q.contains("przed")||q.contains("zanim")||q.contains("wczesniej");
+        boolean afterMath=q.contains("po ")||q.contains("potem");
+        if(!(beforeMath||afterMath))return null;
+        List<Event> all=events(db,before,1000);
+        int anchor=-1;
+        for(int i=0;i<all.size();i++)if("user".equals(all.get(i).type)&&calculation(all.get(i).body)!=null){
+            anchor=i;if(beforeMath)break;
+        }
+        if(anchor<0)return "Nie znalazłam w zapisanej historii punktu odniesienia do tych obliczeń.";
+        int start=beforeMath?Math.max(0,anchor-8):anchor+1;
+        int end=beforeMath?anchor:Math.min(all.size(),anchor+10);
+        StringBuilder result=new StringBuilder();
+        for(int i=start;i<end;i++){
+            Event e=all.get(i);
+            if(!validAnswer(e.body)||calculation(e.body)!=null)continue;
+            String t=e.body.replace('\n',' ').trim();
+            if(t.length()>170)t=t.substring(0,170)+"…";
+            if(result.length()+t.length()>850)break;
+            if(result.length()>0)result.append("\n");
+            result.append("aria".equals(e.type)?"ARIA: ":"Użytkownik: ").append(t);
+        }
+        if(result.length()==0)return beforeMath
+            ? "W zachowanej historii nie znalazłam rozmowy poprzedzającej pierwsze zadanie matematyczne."
+            : "W zachowanej historii nie znalazłam wypowiedzi po tych zadaniach.";
+        return (beforeMath?"Przed pierwszym zapisanym działaniem znalazłam:\n":"Po zapisanych działaniach znalazłam:\n")+result;
+    }
+    /** Fakty są przytaczane ze źródłami, bez wymuszania generacji modelu. */
+    private static String profile(SQLiteDatabase db,long before){
+        StringBuilder out=new StringBuilder();
+        try(Cursor c=db.rawQuery("SELECT fact_key,fact_value FROM facts WHERE source_event_id<? ORDER BY updated_at DESC LIMIT 18",new String[]{String.valueOf(before)})){
+            while(c.moveToNext()){
+                String k=c.getString(0),v=c.getString(1);
+                if(v==null||v.trim().isEmpty())continue;
+                if(out.length()+k.length()+v.length()>850)break;
+                if(out.length()>0)out.append("; ");
+                out.append(k).append(": ").append(v);
+            }
+        }catch(Exception ignored){}
+        if(out.length()==0)return "Nie znalazłam jeszcze potwierdzonych faktów o Tobie w bazie faktów. Mogę przejrzeć wcześniejsze wypowiedzi, ale nie będę zgadywać.";
+        return "W zapisanej bazie faktów mam: "+out+". To informacje z wcześniejszych zapisów, które możesz poprawić.";
+    }
+    static String directRecall(SQLiteDatabase db,String question,long before){
+        if(profileQuestion(question))return profile(db,before);
+        String timeline=chronological(db,question,before);
+        if(timeline!=null)return timeline;
+        return direct(db,question,before);
+    }
     private static Set<String> terms(String text){
         Set<String> out=new HashSet<>();
         String[] words=norm(text).split("[^a-z0-9]+");
@@ -104,7 +165,7 @@ final class AriaMemoryCoordinator {
                 Event e=all.get(i);if(!validAnswer(e.body))continue;
                 Set<String> w=terms(e.body);int score=0;
                 for(String t:q)if(w.contains(t))score+=3;
-                if(calculation(e.body)!=null && mathRecall(question))score+=7;
+                if(calculation(e.body)!=null && mathRecall(question) && !temporalQuestion(question))score+=7;
                 if(score>0)hits.add(new int[]{i,score});
             }
             hits.sort((x,y)->{int v=Integer.compare(y[1],x[1]);return v!=0?v:Integer.compare(y[0],x[0]);});

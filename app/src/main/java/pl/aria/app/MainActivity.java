@@ -452,7 +452,7 @@ public class MainActivity extends Activity {
         }
         showConversation();
         String recalled = !diagnosticMode && !AriaInternet.requested(message)
-            ? AriaMemoryCoordinator.direct(memory.getReadableDatabase(),message,eventId) : null;
+            ? AriaMemoryCoordinator.directRecall(memory.getReadableDatabase(),message,eventId) : null;
         if(recalled != null) {
             AriaLiveState.activity(this,"Pamięć","Odtworzono pary pytanie–odpowiedź z kroniki SQLite");
             memory.add("aria",recalled,"zweryfikowane odtworzenie historii — SQLite");
